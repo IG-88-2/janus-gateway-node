@@ -7,6 +7,14 @@ const fs = require("fs");
 
 
 
+const onError = (error:any) => {
+
+	console.error(error);
+
+}
+
+
+
 const uniq = (list:string[]) : boolean => list.length===[...new Set(list)].length;
 
 
@@ -43,7 +51,9 @@ interface JanusInstanceOptions {
 	address: string,
 	port: number,
 	adminPort: number,
-	adminKey: string
+	adminKey: string,
+	server_name: string,
+	ps: NodeJS.Process
 }
 
 
@@ -53,6 +63,7 @@ interface JanusOptions {
 	onConnected:() => void,
 	onDisconnected:() => void,
 	onError: (error:any) => void,
+	selectInstance: (instances:JanusInstance[]) => JanusInstance,
 	webSocketOptions?: any,
 	p?: string
 }
@@ -69,8 +80,10 @@ interface Response {
 
 class Janus {
 	rooms:{ [id:string] : RoomContext }
+	handles: { [id:number] : any }
 	instances:{ [id:string] : JanusInstance }
 	connections:{ [id:string] : any }
+	stats: { [id:string] : any }
 	context
 	wss:any
 	options:JanusOptions
@@ -78,6 +91,8 @@ class Janus {
 	keepAliveTimeout:number
 	p:string
 	defaultWebSocketOptions:any
+	sync:NodeJS.Timer
+	syncInterval:number
 	notifyConnected:() => void
 
 
@@ -87,8 +102,18 @@ class Janus {
 		this.options = options;
 		
 		this.rooms = {};
+		
+		this.handles = {};
+
+		this.instances = {};
+
+		this.connections = {};
+
+		this.stats = {};
 
 		this.keepAliveTimeout = 10000;
+
+		this.syncInterval = 5000;
 
 		this.p = path.resolve('context.json');
 
@@ -127,7 +152,8 @@ class Janus {
 		this.instances = {};
 
 		for(let i = 0; i < this.options.instances.length; i++) {
-			const { protocol, address, port, adminPort, adminKey } = this.options.instances[i];
+			const { protocol, address, port, adminPort, adminKey, server_name, ps } = this.options.instances[i];
+
 			const instance = new JanusInstance({
 				options: {
 					protocol,
@@ -135,6 +161,8 @@ class Janus {
 					port,
 					adminPort,
 					adminKey,
+					ps,
+					server_name,
 					adminSecret: "janusoverlord"
 				},
 				onDisconnected: () => {
@@ -168,7 +196,18 @@ class Janus {
 		}
 
 		await this.synchronize();
+		
+		this.sync = setInterval(() => {
 
+			this.synchronize()
+			.catch((error) => {
+
+				onError(error);
+
+			});
+
+		}, this.syncInterval);
+		
 		await this.transport();
 
 		if (this.options.onConnected) {
@@ -182,6 +221,11 @@ class Janus {
 	public terminate = async () => {
 		
 		const instances : JanusInstance[] = Object.values(this.instances);
+
+		if (this.sync) {
+			clearInterval(this.sync);
+			this.sync = undefined;
+		}
 
 		for(let i = 0; i < instances.length; i++) {
 			const next = instances[i];
@@ -235,6 +279,31 @@ class Janus {
 			}
 			const result : any = await instance.listRooms();
 			const rooms : JanusRoom[] = result.plugindata.data.list;
+			const handles = await instance.listHandles();
+			let stats = null;
+			
+			try {
+				stats = await instance.getMemoryUsage();
+			} catch(error) {
+				console.error(error);
+			}
+			
+			console.log("STATS", stats);
+
+			if (stats) {
+				this.stats[instance.id] = stats;
+			}
+
+			if (handles.handles) {
+				instance.activeHandles = handles.handles.length;
+				for(let k = 0; k < handles.handles.length; k++) {
+					const handle_id = handles.handles[k];
+					const info = await instance.handleInfo(handle_id);
+					if (info.info) {
+						this.handles[handle_id] = info.info;
+					}
+				}
+			}
 			
 			for(let j = 0; j < rooms.length; j++) {
 				const { room } = rooms[j];
@@ -255,7 +324,6 @@ class Janus {
 				this.rooms[room] = context;
 			}
 		}
-
 	}
 
 
@@ -356,9 +424,13 @@ class Janus {
 			let message;
 
 			try {
+
 				message = JSON.parse(data);
+
 			} catch(error) {
+
 				this.onError(error);
+				
 			}
 
 			if (message) {
@@ -598,6 +670,10 @@ class Janus {
 			const { description } = message.load;
 
 			const instance : JanusInstance = this.selectInstance();
+
+			if (!instance) {
+				throw new Error(`No instance available`);
+			}
 
 			const room_id = this.getRoomId();
 
@@ -1167,12 +1243,28 @@ class Janus {
 
 
 
+	private _selectInstance = (instances : JanusInstance[]) => {
+
+		return instances[0];
+
+	}
+
+
+
 	private selectInstance = () => {
 		
 		const instances : JanusInstance[] = Object.values(this.instances);
 
-		return instances[0];
+		if (instances.length===0) {
+			return null;
+		}
 
+		if (this.options.selectInstance) {
+			return this.options.selectInstance(instances);
+		}
+
+		return this._selectInstance(instances);
+		
 	}
 
 

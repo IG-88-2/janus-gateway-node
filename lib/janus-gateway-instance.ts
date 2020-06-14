@@ -1,6 +1,10 @@
 import { v1 as uuidv1 } from 'uuid';
 import ReconnectingWebSocket from 'reconnecting-websocket';
 const WebSocket = require('ws');
+const { createLogger, format, transports } = require('winston');
+const { combine, timestamp, label, prettyPrint } = format;
+//import * as pidusage from 'pidusage';
+const UsageMonitor = require('roar-pidusage');
 
 
 
@@ -12,25 +16,31 @@ class JanusInstance {
 	adminCalls:{ [id:string]: (response:any) => void }
 	ws:ReconnectingWebSocket
 	adminWs:ReconnectingWebSocket
+	keepAlive:NodeJS.Timer
+	ps:NodeJS.Process
 	protocol:string
 	address:string
 	port:number
 	connected:boolean
 	adminConnected:boolean
 	sessionId:number
-	keepAlive:NodeJS.Timer
 	keepAliveInterval:number
 	transactionTimeout:number
 	adminPort:number
 	adminKey:string
 	adminSecret:string
+	activeHandles:number
+	server:string
+	logger:any
 	notifyConnected:() => void
 	notifyAdminConnected:() => void
 	onDisconnected:() => void
 	onConnected:() => void
 	onMessage:(message:any) => void
-	onError:(error:any) => void
+	_onError:(error:any) => void
+
 	
+
 	constructor({
 		options,
 		onMessage,
@@ -42,7 +52,7 @@ class JanusInstance {
 		this.onMessage = onMessage;
 		this.onDisconnected = onDisconnected;
 		this.onConnected = onConnected;
-		this.onError = onError;
+		this._onError = onError;
 		
 		const {
 			protocol,
@@ -50,9 +60,14 @@ class JanusInstance {
 			port,
 			adminPort,
 			adminKey,
-			adminSecret
+			adminSecret,
+			server_name,
+			ps
 		} = options;
 		
+		this.id = server_name;
+		this.ps = ps;
+		console.log(`HANDLE`, ps.handle);
 		this.adminKey = adminKey;
 		this.adminSecret = adminSecret;
 		this.handles = {};
@@ -67,22 +82,47 @@ class JanusInstance {
 		this.keepAliveInterval = 5000;
 		this.transactionTimeout = 10000;
 		this.adminPort = adminPort;
+		this.server = `${this.protocol}://${this.address}:${this.port}`; 
+		this.logger = createLogger({
+			level: `info`,
+			format: combine(
+				label({ label: this.id }),
+				timestamp(),
+				prettyPrint()
+			),
+			transports: [
+				new transports.File({ filename: `${__dirname}/${this.id}.log` }),
+				new transports.Console()
+			]
+		});
+
+	}
+
+
+
+	private onError = (error) => {
+
+		if (this._onError) {
+			this._onError(error); 
+		}
+
+		this.logger.error(error.message);
 
 	}
 
 
 
 	public connect = () : Promise<void> => {
-
-		const server = `${this.protocol}://${this.address}:${this.port}`; 
-
+		
+		this.logger.info(`connect to ${this.server }`);
+		
 		this.ws = new ReconnectingWebSocket(
-			server, 
+			this.server , 
 			'janus-protocol',
 			{
 				WebSocket,
-				connectionTimeout: 1000,
-				maxRetries: 10
+				connectionTimeout: 3000,
+				maxRetries: 100
 			}
 		);
 
@@ -126,7 +166,11 @@ class JanusInstance {
 
 		return new Promise((resolve) => {
 
-			this.notifyConnected = () => resolve();
+			this.notifyConnected = () => {
+				
+				resolve();
+				
+			};
 
 		});
 		
@@ -149,16 +193,16 @@ class JanusInstance {
 
 
 	public connectAdmin = () : Promise<void> => {
-
+		
 		const server = `${this.protocol}://${this.address}:${this.adminPort}`; 
-
+		
 		this.adminWs = new ReconnectingWebSocket(
 			server, 
 			'janus-admin-protocol',
 			{
 				WebSocket,
-				connectionTimeout: 1000,
-				maxRetries: 10
+				connectionTimeout: 3000,
+				maxRetries: 100
 			}
 		);
 
@@ -205,7 +249,11 @@ class JanusInstance {
 
 		return new Promise((resolve) => {
 
-			this.notifyAdminConnected = () => resolve();
+			this.notifyAdminConnected = () => {
+				
+				resolve();
+
+			};
 
 		});
 		
@@ -226,6 +274,8 @@ class JanusInstance {
 
 
 	private _onConnected = async () => {
+		
+		this.logger.info(`connected to ${this.server}`);
 		
 		this.connected = true;
 		
@@ -262,6 +312,8 @@ class JanusInstance {
 
 	private _onDisconnected = () => {
 
+		this.logger.info(`disconnected from ${this.server}`);
+
 		this.connected = false;
 
 		this.onDisconnected();
@@ -271,9 +323,7 @@ class JanusInstance {
 
 
 	private transaction = (request) => {
-
-		console.log('next', request);
-
+		
 		const timeout = this.transactionTimeout;
 
 		const id = uuidv1();
@@ -319,8 +369,10 @@ class JanusInstance {
 					const error = this.getJanusError(request, message);
 					
 					if (error) {
+						this.logger.error(`transaction ${id} failed ${error.message}`);
 						reject(error);
 					} else {
+						this.logger.info(`transaction ${id} succeeded for ${request.janus}`);
 						resolve(message);
 					}
 				}
@@ -382,12 +434,15 @@ class JanusInstance {
 					delete this.adminCalls[id];
 					
 					const error = this.getJanusError(request, message);
-
+					
 					if (error) {
+						this.logger.error(`admin transaction ${id} failed ${error.message}`);
 						reject(error);
 					} else {
+						this.logger.info(`admin transaction ${id} succeeded for ${request.janus}`);
 						resolve(message);
 					}
+					
 				}
 
 			};
@@ -625,6 +680,38 @@ class JanusInstance {
 	}
 
 
+
+	public listHandles = () => {
+		
+		const request = {
+			janus: "list_handles"
+		};
+
+		if (this.sessionId) {
+			request['session_id'] = this.sessionId;
+		}
+
+		return this.adminTransaction(request);
+
+	}
+
+
+
+	public handleInfo = (handle_id: string) => {
+		
+		const request = {
+			janus: "handle_info", 
+			handle_id
+		};
+
+		if (this.sessionId) {
+			request['session_id'] = this.sessionId;
+		}
+
+		return this.adminTransaction(request);
+
+	}
+	
 
 	public listRooms = () => {
 		
@@ -1089,6 +1176,28 @@ class JanusInstance {
 		};
 
 		return this.transaction(request);
+
+	}
+
+
+
+	getMemoryUsage = () : Promise<any> => {
+
+		console.log("STATS",  UsageMonitor);
+
+		UsageMonitor.stat(process.pid, function(err, stat) {
+
+			console.log(err, stat);
+
+		});
+		/*console.log("STATS",  UsageMonitor);
+		const memMonitor = new UsageMonitor({ interval: 500 });
+		memMonitor.run(this.ps.pid, (err, data) => {
+			console.log('DADA',data);
+			//this.logger.info(`pid ${this.ps.pid}, memory usage ${this.ps.memoryUsage}, cpu usage ${this.ps.cpuUsage}`);
+		});*/
+  
+		return Promise.resolve();
 
 	}
 
