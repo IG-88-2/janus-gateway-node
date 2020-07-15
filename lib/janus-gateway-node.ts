@@ -1,17 +1,18 @@
 import { v1 as uuidv1 } from "uuid";
+import { logger } from "./logger";
 import WebSocket = require("ws");
 import JanusInstance from "./janus-gateway-instance";
 const url = require("url");
 const path = require("path");
 const fs = require("fs");
 
-
+//v1
 
 const onError = (error:any) => {
 
-	console.error(error);
+	logger.error(error);
 
-}
+};
 
 
 
@@ -170,7 +171,7 @@ class Janus {
 				},
 				onConnected: () => {
 					
-					console.log(`(${server_name}) instance connected ${protocol} ${address} ${port} ${adminKey}`)
+				
 
 				},
 				onMessage: (json) => {
@@ -283,16 +284,9 @@ class Janus {
 			const rooms : JanusRoom[] = result.plugindata.data.list;
 			const handles = await instance.listHandles();
 			let stats = null;
-			
-			try {
-				stats = await instance.getMemoryUsage();
-			} catch(error) {
-				console.error(error);
-			}
-			
-			console.log("STATS", stats);
 
 			if (stats) {
+				//TODO how get docker stats ?
 				this.stats[instance.id] = stats;
 			}
 

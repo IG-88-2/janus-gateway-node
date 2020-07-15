@@ -1,10 +1,7 @@
 import { v1 as uuidv1 } from 'uuid';
+import { logger } from './logger';
 import ReconnectingWebSocket from 'reconnecting-websocket';
 const WebSocket = require('ws');
-const { createLogger, format, transports } = require('winston');
-const { combine, timestamp, label, prettyPrint } = format;
-//import * as pidusage from 'pidusage';
-const UsageMonitor = require('roar-pidusage');
 
 
 
@@ -31,13 +28,13 @@ class JanusInstance {
 	adminSecret:string
 	activeHandles:number
 	server:string
-	logger:any
 	notifyConnected:() => void
 	notifyAdminConnected:() => void
 	onDisconnected:() => void
 	onConnected:() => void
 	onMessage:(message:any) => void
 	_onError:(error:any) => void
+	logger
 
 	
 
@@ -82,20 +79,8 @@ class JanusInstance {
 		this.keepAliveInterval = 5000;
 		this.transactionTimeout = 10000;
 		this.adminPort = adminPort;
-		this.server = `${this.protocol}://${this.address}:${this.port}`; 
-		this.logger = createLogger({
-			level: `info`,
-			format: combine(
-				label({ label: this.id }),
-				timestamp(),
-				prettyPrint()
-			),
-			transports: [
-				new transports.File({ filename: `${__dirname}/${this.id}.log` }),
-				new transports.Console()
-			]
-		});
-
+		this.server = `${this.protocol}://${this.address}:${this.port}`;
+		this.logger = logger;
 	}
 
 
@@ -113,8 +98,6 @@ class JanusInstance {
 
 
 	public connect = () : Promise<void> => {
-		
-		this.logger.info(`connect to ${this.server }`);
 		
 		this.ws = new ReconnectingWebSocket(
 			this.server , 
@@ -194,10 +177,8 @@ class JanusInstance {
 
 	public connectAdmin = () : Promise<void> => {
 		
-		const server = `${this.protocol}://${this.address}:${this.adminPort}`; 
+		const server = `${this.protocol}://${this.address}:${this.adminPort}`;
 		
-		console.log('connect admin', server);
-
 		this.adminWs = new ReconnectingWebSocket(
 			server, 
 			'janus-admin-protocol',
@@ -227,8 +208,6 @@ class JanusInstance {
 		});
 		
         this.adminWs.addEventListener('close', () => {
-
-			console.log('close admin');
 			
 			this.adminConnected = false;
 
@@ -236,8 +215,6 @@ class JanusInstance {
 
 		this.adminWs.addEventListener('open', () => {
 			
-			console.log('open admin');
-
 			this.adminConnected = true;
 
 			if (this.notifyAdminConnected) {
@@ -281,8 +258,6 @@ class JanusInstance {
 
 	private _onConnected = async () => {
 		
-		this.logger.info(`connected to ${this.server}`);
-		
 		this.connected = true;
 		
 		let response = null;
@@ -317,9 +292,7 @@ class JanusInstance {
 
 
 	private _onDisconnected = () => {
-
-		this.logger.info(`disconnected from ${this.server}`);
-
+		
 		this.connected = false;
 
 		this.onDisconnected();
@@ -378,7 +351,6 @@ class JanusInstance {
 						this.logger.error(`transaction ${id} failed ${error.message}`);
 						reject(error);
 					} else {
-						this.logger.info(`transaction ${id} succeeded for ${request.janus}`);
 						resolve(message);
 					}
 				}
@@ -445,7 +417,6 @@ class JanusInstance {
 						this.logger.error(`admin transaction ${id} failed ${error.message}`);
 						reject(error);
 					} else {
-						this.logger.info(`admin transaction ${id} succeeded for ${request.janus}`);
 						resolve(message);
 					}
 					
@@ -458,8 +429,6 @@ class JanusInstance {
 
 		});
 		
-		console.log('sending admin message...', r);
-
 		this.adminWs.send(r);
 		
 		return p;
@@ -1186,28 +1155,6 @@ class JanusInstance {
 		};
 
 		return this.transaction(request);
-
-	}
-
-
-
-	getMemoryUsage = () : Promise<any> => {
-
-		console.log("STATS",  UsageMonitor);
-
-		UsageMonitor.stat(process.pid, function(err, stat) {
-
-			console.log(err, stat);
-
-		});
-		/*console.log("STATS",  UsageMonitor);
-		const memMonitor = new UsageMonitor({ interval: 500 });
-		memMonitor.run(this.ps.pid, (err, data) => {
-			console.log('DADA',data);
-			//this.logger.info(`pid ${this.ps.pid}, memory usage ${this.ps.memoryUsage}, cpu usage ${this.ps.cpuUsage}`);
-		});*/
-  
-		return Promise.resolve();
 
 	}
 
