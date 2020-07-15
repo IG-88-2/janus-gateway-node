@@ -153,7 +153,7 @@ class Janus {
 
 		for(let i = 0; i < this.options.instances.length; i++) {
 			const { protocol, address, port, adminPort, adminKey, server_name, ps } = this.options.instances[i];
-
+			
 			const instance = new JanusInstance({
 				options: {
 					protocol,
@@ -170,6 +170,8 @@ class Janus {
 				},
 				onConnected: () => {
 					
+					console.log(`(${server_name}) instance connected ${protocol} ${address} ${port} ${adminKey}`)
+
 				},
 				onMessage: (json) => {
 					

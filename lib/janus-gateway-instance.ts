@@ -67,7 +67,7 @@ class JanusInstance {
 		
 		this.id = server_name;
 		this.ps = ps;
-		console.log(`HANDLE`, ps.handle);
+		
 		this.adminKey = adminKey;
 		this.adminSecret = adminSecret;
 		this.handles = {};
@@ -100,13 +100,13 @@ class JanusInstance {
 
 
 
-	private onError = (error) => {
+	private onError = (error, location) => {
 
 		if (this._onError) {
 			this._onError(error); 
 		}
 
-		this.logger.error(error.message);
+		this.logger.error(`${location} ${error.message}`);
 
 	}
 
@@ -160,7 +160,7 @@ class JanusInstance {
 
 		this.ws.addEventListener('error', error => {
 			
-			this.onError(error);
+			this.onError(error, 'ws error');
 
 		});
 
@@ -196,6 +196,8 @@ class JanusInstance {
 		
 		const server = `${this.protocol}://${this.address}:${this.adminPort}`; 
 		
+		console.log('connect admin', server);
+
 		this.adminWs = new ReconnectingWebSocket(
 			server, 
 			'janus-admin-protocol',
@@ -225,6 +227,8 @@ class JanusInstance {
 		});
 		
         this.adminWs.addEventListener('close', () => {
+
+			console.log('close admin');
 			
 			this.adminConnected = false;
 
@@ -232,6 +236,8 @@ class JanusInstance {
 
 		this.adminWs.addEventListener('open', () => {
 			
+			console.log('open admin');
+
 			this.adminConnected = true;
 
 			if (this.notifyAdminConnected) {
@@ -243,7 +249,7 @@ class JanusInstance {
 
 		this.adminWs.addEventListener('error', error => {
 			
-			this.onError(error);
+			this.onError(error, 'admin ws error');
 
 		});
 
@@ -400,7 +406,7 @@ class JanusInstance {
 		request.transaction = id;
 		
 		request.admin_secret = this.adminSecret;
-		
+
 		let r = null;
 		let p = null;
 		
@@ -452,6 +458,8 @@ class JanusInstance {
 
 		});
 		
+		console.log('sending admin message...', r);
+
 		this.adminWs.send(r);
 		
 		return p;
@@ -554,7 +562,9 @@ class JanusInstance {
 			this.transaction({
 				janus: "keepalive"
 			})
-			.catch((error) => this.onError(error));
+			.catch((error) => {
+				this.onError(error, 'keepalive error');
+			});
 			
 		}, this.keepAliveInterval);
 
