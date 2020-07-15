@@ -64,7 +64,6 @@ class JanusInstance {
 		
 		this.id = server_name;
 		this.ps = ps;
-		
 		this.adminKey = adminKey;
 		this.adminSecret = adminSecret;
 		this.handles = {};
@@ -92,7 +91,6 @@ class JanusInstance {
 		}
 
 		this.logger.error(`${location} ${error.message}`);
-
 	}
 
 
@@ -126,7 +124,6 @@ class JanusInstance {
 				}
 				this.onMessage(message);
 			}
-
 		});
 		
         this.ws.addEventListener('close', () => {
@@ -258,6 +255,8 @@ class JanusInstance {
 
 	private _onConnected = async () => {
 		
+		logger.info('websocket connected', this.id);
+
 		this.connected = true;
 		
 		let response = null;
@@ -268,13 +267,21 @@ class JanusInstance {
 			response = await this.createSession();
 		}
 
+		logger.info('session claimed', this.id);
+
+		logger.json(response);
+		
 		this.onSession(response);
 
 		const handleId = await this.attach();
 
 		this.localHandleId = handleId;
+
+		logger.info(`attached ${handleId}`, this.id);
 		
 		await this.connectAdmin();
+
+		logger.info(`admin connected`, this.id);
 
 		const { name } = await this.info();
 
@@ -348,7 +355,7 @@ class JanusInstance {
 					const error = this.getJanusError(request, message);
 					
 					if (error) {
-						this.logger.error(`transaction ${id} failed ${error.message}`);
+						this.logger.error(`transaction ${id} failed ${error.message}`, );
 						reject(error);
 					} else {
 						resolve(message);

@@ -1,7 +1,7 @@
 export const logger = {
-	info : (message) => {
+	info : (message, tag?) => {
 
-		console.log("\x1b[32m", `[janus-gateway-node] ${message}`);
+		console.log("\x1b[32m", `[janus-gateway-node]${tag ? ` [${tag}]` : ``} ${message}`);
 	},
 	error : (message) => {
 

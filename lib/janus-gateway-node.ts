@@ -123,6 +123,7 @@ class Janus {
 		}
 
 		this.defaultWebSocketOptions = {
+			host: '127.0.0.1',
 			port: 8080,
 			backlog: 10,
 			clientTracking: false,
@@ -155,6 +156,9 @@ class Janus {
 		for(let i = 0; i < this.options.instances.length; i++) {
 			const { protocol, address, port, adminPort, adminKey, server_name, ps } = this.options.instances[i];
 			
+			logger.info(`ready to connect instance ${i}`);
+			logger.json(this.options.instances);
+
 			const instance = new JanusInstance({
 				options: {
 					protocol,
@@ -168,10 +172,12 @@ class Janus {
 				},
 				onDisconnected: () => {
 
+
+
 				},
 				onConnected: () => {
 					
-				
+					
 
 				},
 				onMessage: (json) => {
@@ -341,6 +347,10 @@ class Janus {
 
 		this.connections = {};
 
+		logger.info('initializing transport...');
+
+		logger.json(options);
+		
 		this.wss = new WebSocket.Server(options);
 		
 		this.wss.on('connection', this.onConnection);
