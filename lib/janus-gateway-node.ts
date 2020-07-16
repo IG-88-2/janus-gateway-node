@@ -509,7 +509,6 @@ class Janus {
 			type: 'keepalive',
 			load: user_id
 		};
-		
 	}
 
 
@@ -596,6 +595,8 @@ class Janus {
 	) : Promise<void> => {
 		
 		let response : Response = null;
+
+		logger.json(message);
 
 		switch(message.type) {
 			case 'keepalive': 
@@ -872,6 +873,8 @@ class Janus {
 				jsep,
 				room_id,
 				handle_id,
+				video,
+				audio,
 				ptype
 			} = message.load;
 
@@ -879,16 +882,27 @@ class Janus {
 
 			const instance = this.instances[room.instance_id];
 			
-			const result : any = await instance.configure({
-				jsep,
+			const request : any = {
 				room: room_id,
 				pin: room.pin, 
 				secret: room.secret,
 				handle_id,
-				ptype,
-				audio: true,
-				video: true
-			});
+				ptype
+			};
+
+			if (jsep) {
+				request.jsep = jsep;
+			}
+
+			if (video!==undefined) {
+				request.video = video;
+			}
+
+			if (audio!==undefined) {
+				request.audio = audio;
+			}
+
+			const result : any = await instance.configure(request);
 			
 			const response = {
 				type: 'configure',

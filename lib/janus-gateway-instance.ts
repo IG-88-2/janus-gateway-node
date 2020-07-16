@@ -1051,14 +1051,14 @@ class JanusInstance {
 			request.body.videocodec = videocodec;
 		}
 
-		if (audio) {
-			request.body.offer_audio = true;
-			request.body.audio = true;
+		if (audio!==undefined) {
+			request.body.offer_audio = audio;
+			request.body.audio = audio;
 		}
 
-		if (video) {
-			request.body.offer_video = true;
-			request.body.video = true;
+		if (video!==undefined) {
+			request.body.offer_video = video;
+			request.body.video = video;
 		}
 		
 		return this.transaction(request);
