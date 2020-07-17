@@ -80,6 +80,7 @@ class JanusInstance {
 		this.adminPort = adminPort;
 		this.server = `${this.protocol}://${this.address}:${this.port}`;
 		this.logger = logger;
+
 	}
 
 
@@ -91,6 +92,7 @@ class JanusInstance {
 		}
 
 		this.logger.error(`${location} ${error.message}`);
+
 	}
 
 
@@ -342,11 +344,22 @@ class JanusInstance {
 			}
 
 			const f = (message:any) => {
-				
+
+				if (
+					request.janus!=="keepalive" &&
+					!(request.body && request.body.request==="list") && 
+					!(request.body && request.body.request==="listparticipants")
+				) {
+					logger.json({
+						...message,
+						request 
+					});
+				}
+
 				let done = this.transactionMatch(id, request, message);
 				
 				if (done) {
-					if (timeout){
+					if (timeout) {
 						clearTimeout(t);
 					}
 					
@@ -355,7 +368,7 @@ class JanusInstance {
 					const error = this.getJanusError(request, message);
 					
 					if (error) {
-						this.logger.error(`transaction ${id} failed ${error.message}`, );
+						this.logger.error(`transaction ${id} failed ${error.message}`);
 						reject(error);
 					} else {
 						resolve(message);
@@ -426,7 +439,6 @@ class JanusInstance {
 					} else {
 						resolve(message);
 					}
-					
 				}
 
 			};
@@ -1095,11 +1107,11 @@ class JanusInstance {
 
 
 	
-	hangup = (handle_id:number) => {
+	hangup = (handle_id) => {
 		
 		return this.transaction({
 			janus: "hangup",
-			handle_id: handle_id
+			handle_id: Number(handle_id)
 		});
 		
 	}

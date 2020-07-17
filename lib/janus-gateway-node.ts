@@ -453,6 +453,10 @@ class Janus {
 
 		try {
 
+			if (!this.connections[user_id]) {
+				throw new Error(`connection ${user_id} already termianted`);
+			}
+
 			const { ws } = this.connections[user_id];
 
 			const message = JSON.stringify(response);
@@ -595,9 +599,7 @@ class Janus {
 	) : Promise<void> => {
 		
 		let response : Response = null;
-
-		logger.json(message);
-
+		
 		switch(message.type) {
 			case 'keepalive': 
 				response = this.onKeepAlive(user_id);
