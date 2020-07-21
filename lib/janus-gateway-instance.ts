@@ -1,5 +1,5 @@
 import { v1 as uuidv1 } from 'uuid';
-import { logger } from './logger';
+import { exec } from 'child_process';
 import ReconnectingWebSocket from 'reconnecting-websocket';
 const WebSocket = require('ws');
 
@@ -14,7 +14,7 @@ class JanusInstance {
 	ws:ReconnectingWebSocket
 	adminWs:ReconnectingWebSocket
 	keepAlive:NodeJS.Timer
-	ps:NodeJS.Process
+	usageMonitor:NodeJS.Timer
 	protocol:string
 	address:string
 	port:number
@@ -22,24 +22,32 @@ class JanusInstance {
 	adminConnected:boolean
 	sessionId:number
 	keepAliveInterval:number
+	usageMonitorInterval:number
 	transactionTimeout:number
 	adminPort:number
 	adminKey:string
 	adminSecret:string
 	activeHandles:number
 	server:string
+	stats:{
+		container:string,
+		memusage:string,
+		memperc:string,
+		cpuperc:string
+	}
 	notifyConnected:() => void
 	notifyAdminConnected:() => void
 	onDisconnected:() => void
 	onConnected:() => void
 	onMessage:(message:any) => void
 	_onError:(error:any) => void
-	logger
+	logger:any
 
 	
 
 	constructor({
 		options,
+		logger,
 		onMessage,
 		onDisconnected,
 		onConnected,
@@ -58,12 +66,10 @@ class JanusInstance {
 			adminPort,
 			adminKey,
 			adminSecret,
-			server_name,
-			ps
+			server_name
 		} = options;
 		
 		this.id = server_name;
-		this.ps = ps;
 		this.adminKey = adminKey;
 		this.adminSecret = adminSecret;
 		this.handles = {};
@@ -77,9 +83,16 @@ class JanusInstance {
 		this.connected = false;
 		this.keepAliveInterval = 5000;
 		this.transactionTimeout = 10000;
+		this.usageMonitorInterval = 5000;
 		this.adminPort = adminPort;
 		this.server = `${this.protocol}://${this.address}:${this.port}`;
 		this.logger = logger;
+		this.stats = {
+			container: server_name,
+			memusage:'0',
+			memperc:'0',
+			cpuperc:'0'
+		};
 
 	}
 
@@ -99,15 +112,13 @@ class JanusInstance {
 
 	public connect = () : Promise<void> => {
 		
-		this.ws = new ReconnectingWebSocket(
-			this.server , 
-			'janus-protocol',
-			{
-				WebSocket,
-				connectionTimeout: 3000,
-				maxRetries: 100
-			}
-		);
+		const options = {
+			WebSocket,
+			connectionTimeout: 3000,
+			maxRetries: 100
+		};
+
+		this.ws = new ReconnectingWebSocket(this.server, 'janus-protocol', options);
 
 		this.ws.addEventListener('message', (response:MessageEvent) => {
 			
@@ -126,6 +137,7 @@ class JanusInstance {
 				}
 				this.onMessage(message);
 			}
+
 		});
 		
         this.ws.addEventListener('close', () => {
@@ -178,15 +190,13 @@ class JanusInstance {
 		
 		const server = `${this.protocol}://${this.address}:${this.adminPort}`;
 		
-		this.adminWs = new ReconnectingWebSocket(
-			server, 
-			'janus-admin-protocol',
-			{
-				WebSocket,
-				connectionTimeout: 3000,
-				maxRetries: 100
-			}
-		);
+		const options = {
+			WebSocket,
+			connectionTimeout: 3000,
+			maxRetries: 100
+		};
+
+		this.adminWs = new ReconnectingWebSocket(server, 'janus-admin-protocol', options);
 
 		this.adminWs.addEventListener('message', (response:MessageEvent) => {
 			
@@ -257,7 +267,7 @@ class JanusInstance {
 
 	private _onConnected = async () => {
 		
-		logger.info('websocket connected', this.id);
+		this.logger.info('websocket connected', this.id);
 
 		this.connected = true;
 		
@@ -269,9 +279,9 @@ class JanusInstance {
 			response = await this.createSession();
 		}
 
-		logger.info('session claimed', this.id);
+		this.logger.info('session claimed', this.id);
 
-		logger.json(response);
+		this.logger.json(response);
 		
 		this.onSession(response);
 
@@ -279,15 +289,13 @@ class JanusInstance {
 
 		this.localHandleId = handleId;
 
-		logger.info(`attached ${handleId}`, this.id);
+		this.logger.info(`attached ${handleId}`, this.id);
 		
 		await this.connectAdmin();
 
-		logger.info(`admin connected`, this.id);
+		this.logger.info(`admin connected`, this.id);
 
-		const { name } = await this.info();
-
-		this.id = name;
+		//const info = await this.info();
 
 		if (this.notifyConnected) {
 			this.notifyConnected();
@@ -350,7 +358,7 @@ class JanusInstance {
 					!(request.body && request.body.request==="list") && 
 					!(request.body && request.body.request==="listparticipants")
 				) {
-					logger.json({
+					this.logger.json({
 						...message,
 						request 
 					});
@@ -544,6 +552,8 @@ class JanusInstance {
 		if (this.keepAlive) {
 			clearInterval(this.keepAlive);
 		}
+
+		this.usageMonitor = setInterval(this.getStats, this.usageMonitorInterval);
 		
 		this.keepAlive = setInterval(() => {
 
@@ -551,7 +561,9 @@ class JanusInstance {
 				janus: "keepalive"
 			})
 			.catch((error) => {
+
 				this.onError(error, 'keepalive error');
+
 			});
 			
 		}, this.keepAliveInterval);
@@ -578,10 +590,53 @@ class JanusInstance {
 				this.keepAlive = undefined;
 			}
 
+			if (this.usageMonitor) {
+				clearInterval(this.usageMonitor);
+				this.usageMonitor = undefined;
+			}
+
 			return response;
 			
 		});
 		
+	}
+
+
+
+	private getStats = () => {
+			
+		const command = `docker stats --no-stream --format "{{.Container}} > {{.MemUsage}} > {{.MemPerc}} > {{.CPUPerc}}" ${this.id}`;
+
+		const onResult = (error, stdout, stderr) => { 
+			
+			let stats : any = {};
+
+			try {
+
+				let values = stdout.split('>').map((s:string) => s.trim());
+
+				stats.container = values[0];
+
+				stats.memusage = values[1];
+
+				stats.memperc = values[2];
+
+				stats.cpuperc = values[3];
+
+			} catch(error) {
+				
+				this.onError(error, 'usageMonitor');
+
+			}
+
+			this.stats = stats;
+
+			this.logger.json(stats);
+
+		};
+
+		exec(command, onResult);
+
 	}
 
 
@@ -632,7 +687,8 @@ class JanusInstance {
 				room,
 				permanent: false,
 				is_private: false,
-				admin_key: this.adminKey
+				admin_key: this.adminKey,
+				publishers: 6
 			}
 		};
 
@@ -710,6 +766,7 @@ class JanusInstance {
 
 	}
 	
+
 
 	public listRooms = () => {
 		

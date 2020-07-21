@@ -1,18 +1,7 @@
 import { v1 as uuidv1 } from "uuid";
-import { logger } from "./logger";
 import WebSocket = require("ws");
 import JanusInstance from "./janus-gateway-instance";
 const url = require("url");
-const path = require("path");
-const fs = require("fs");
-
-//v1
-
-const onError = (error:any) => {
-
-	logger.error(error);
-
-};
 
 
 
@@ -60,13 +49,19 @@ interface JanusInstanceOptions {
 
 
 interface JanusOptions {
-	instances: JanusInstanceOptions[],	
-	onConnected:() => void,
-	onDisconnected:() => void,
+	instances: JanusInstanceOptions[],
+	retrieveContext: () => any,
+	updateContext: (context:any) => any,	
+	onConnected: () => void,
+	onDisconnected: () => void,
 	onError: (error:any) => void,
-	selectInstance: (instances:JanusInstance[]) => JanusInstance,
-	webSocketOptions?: any,
-	p?: string
+	logger?: {
+		info? : (message:string) => void,
+		error? : (error:any) => void,
+		json? : (json:any) => void
+	},
+	selectInstance?: (instances:JanusInstance[]) => JanusInstance,
+	webSocketOptions?: any
 }
 
 
@@ -80,28 +75,27 @@ interface Response {
 
 
 class Janus {
+	options:JanusOptions
 	rooms:{ [id:string] : RoomContext }
 	handles: { [id:number] : any }
 	instances:{ [id:string] : JanusInstance }
 	connections:{ [id:string] : any }
-	stats: { [id:string] : any }
-	context
-	wss:any
-	options:JanusOptions
-	listening:boolean
-	keepAliveTimeout:number
-	p:string
-	defaultWebSocketOptions:any
+	stats:{ [id:string] : any }
 	sync:NodeJS.Timer
+	listening:boolean
+	contextPath:string
+	keepAliveTimeout:number
 	syncInterval:number
+	count:number
 	notifyConnected:() => void
-
-
-
+	defaultWebSocketOptions:any
+	context:any
+	wss:any
+	
 	constructor(options:JanusOptions) {
 		
 		this.options = options;
-		
+
 		this.rooms = {};
 		
 		this.handles = {};
@@ -112,16 +106,10 @@ class Janus {
 
 		this.stats = {};
 
-		this.keepAliveTimeout = 10000;
+		this.keepAliveTimeout = 30000;
 
-		this.syncInterval = 5000;
-
-		this.p = path.resolve('context.json');
-
-		if (this.options.p) {
-			this.p = this.options.p;
-		}
-
+		this.syncInterval = 30000;
+		
 		this.defaultWebSocketOptions = {
 			host: '127.0.0.1',
 			port: 8080,
@@ -131,19 +119,7 @@ class Janus {
 			maxPayload: 10000
 		};
 
-		this.context = {};
-
-		try {
-
-			const file = fs.readFileSync(this.p, 'utf-8');
-
-			this.context = JSON.parse(file);
-
-		} catch(error) {
-			
-			this.onError(error);
-
-		}
+		this.context = this.options.retrieveContext();
 
 	}
 
@@ -156,8 +132,9 @@ class Janus {
 		for(let i = 0; i < this.options.instances.length; i++) {
 			const { protocol, address, port, adminPort, adminKey, server_name, ps } = this.options.instances[i];
 			
-			logger.info(`ready to connect instance ${i}`);
-			logger.json(this.options.instances);
+			this.options.logger.info(`ready to connect instance ${i}`);
+
+			this.options.logger.json(this.options.instances);
 
 			const instance = new JanusInstance({
 				options: {
@@ -187,7 +164,10 @@ class Janus {
 				},
 				onError: (error) => {
 					
-				}
+
+
+				},
+				logger:this.options.logger
 			});
 			
 			await instance.connect();
@@ -211,7 +191,7 @@ class Janus {
 			this.synchronize()
 			.catch((error) => {
 
-				onError(error);
+				this.onError(error);
 
 			});
 
@@ -228,7 +208,9 @@ class Janus {
 
 
 	public terminate = async () => {
-		
+
+		this.context = await this.options.updateContext(this.rooms);
+
 		const instances : JanusInstance[] = Object.values(this.instances);
 
 		if (this.sync) {
@@ -266,36 +248,21 @@ class Janus {
 		
 		const instances = Object.values(this.instances);
 		
-		try {
-
-			const file = fs.readFileSync(this.p, 'utf-8');
-
-			this.context = JSON.parse(file);
-
-		} catch(error) {
-			
-			this.onError(error);
-
-		}
-
 		for(let i = 0; i < instances.length; i++) {
 			const instance = instances[i];
-			if (!instance) {
+			
+			if (
+				!instance || (instance_id && instance.id!=instance_id)
+			) {
 				continue;
 			}
-			if (instance_id && instance.id!==instance_id) {
-				continue;
-			}
+
 			const result : any = await instance.listRooms();
 			const rooms : JanusRoom[] = result.plugindata.data.list;
 			const handles = await instance.listHandles();
-			let stats = null;
-
-			if (stats) {
-				//TODO how get docker stats ?
-				this.stats[instance.id] = stats;
-			}
-
+			
+			this.stats[instance.id] = instance.stats;
+			
 			if (handles.handles) {
 				instance.activeHandles = handles.handles.length;
 				for(let k = 0; k < handles.handles.length; k++) {
@@ -318,14 +285,25 @@ class Janus {
 					secret: undefined,
 					participants
 				};
+				
 				const target = this.context[room];
+				
 				if (target) {
-					context.pin = target.pin;
-					context.secret = target.secret;
+					if (target.pin) {
+						context.pin = target.pin;
+					}
+					if (target.secret) {
+						context.secret = target.secret;
+					}
 				}
+
 				this.rooms[room] = context;
 			}
 		}
+		
+		//TODO should i update context here ???
+		//this.context = await this.options.updateContext(this.rooms);
+		
 	}
 
 
@@ -347,9 +325,9 @@ class Janus {
 
 		this.connections = {};
 
-		logger.info('initializing transport...');
+		//logger.info('initializing transport...');
 
-		logger.json(options);
+		//logger.json(options);
 		
 		this.wss = new WebSocket.Server(options);
 		
@@ -385,9 +363,7 @@ class Janus {
 	private onError = (error) => {
 
 		if (this.options.onError) {
-
 			this.options.onError(error);
-
 		}
 
 	}
@@ -396,7 +372,11 @@ class Janus {
 
 	private onTimeout = (user_id:string) => {
 
+		//logger.info(`timeout called for user ${user_id}`);
+
 		const { ws } = this.connections[user_id];
+
+		ws.removeListener('message', this.onMessage);
 
 		ws.close();
 
@@ -413,8 +393,26 @@ class Janus {
 		let user_id = this.getUserId(req);
 		
 		if (!user_id) {
+
+			//logger.info(`onConnection - user_id is missing`);
+
 			ws.close();
+
 			return;
+
+		}
+
+		//logger.info(`new socket connection from ${user_id}`);
+
+		if (this.connections[user_id]) {
+
+			this.connections[user_id].ws.removeListener('message', this.onMessage);
+
+			//TODO review ???
+			//this.connections[user_id].ws.close();
+
+			clearTimeout(this.connections[user_id].t);
+
 		}
 		
 		const t = setTimeout(() => {
@@ -425,26 +423,30 @@ class Janus {
 
 		this.connections[user_id] = { ws, t };
 
-		ws.on('message', (data) => {
-
-			let message;
-
-			try {
-
-				message = JSON.parse(data);
-
-			} catch(error) {
-
-				this.onError(error);
-				
-			}
-
-			if (message) {
-				this.onUserMessage(user_id, message);
-			}
-
-		});
+		ws.on('message', this.onMessage(user_id));
 		
+	}
+
+
+
+	private onMessage = (user_id) => (data) => {
+
+		let message;
+
+		try {
+
+			message = JSON.parse(data);
+
+		} catch(error) {
+
+			this.onError(error);
+			
+		}
+
+		if (message) {
+			this.onUserMessage(user_id, message);
+		}
+
 	}
 
 
@@ -677,19 +679,19 @@ class Janus {
 		try {
 
 			const { description } = message.load;
-
+			
 			const instance : JanusInstance = this.selectInstance();
 
 			if (!instance) {
 				throw new Error(`No instance available`);
 			}
-
+			
 			const room_id = this.getRoomId();
+
+			const secret = this.getSecret();
 
 			const pin = this.getPin();
 			
-			const secret = this.getSecret();
-
 			const result : any = await instance.createRoom({
 				description,
 				secret,
@@ -706,13 +708,11 @@ class Janus {
 				secret,
 				participants : []
 			};
-
+			
 			this.rooms[room] = context;
 			
-			const file = JSON.stringify(this.rooms);
-			
-			fs.writeFileSync(this.p, file);
-			
+			this.context = await this.options.updateContext(this.rooms);
+
 			const response = {
 				type:'create_room',
 				load: {
@@ -739,8 +739,7 @@ class Janus {
 	}
 
 
-
-	//TODO issue janus_videoroom.c 3371 - room not destroyed if room_id is string SHOULD BE FIXED ON MASTER
+	
 	public destroyRoom = async (message:any) : Promise<Response> => {
 		
 		try {
@@ -1266,8 +1265,17 @@ class Janus {
 
 
 	private _selectInstance = (instances : JanusInstance[]) => {
+		
+		let instance = instances[this.count];
+						
+		if (!instance) {
+			this.count = 0;
+			instance = instances[this.count];
+		}
 
-		return instances[0];
+		this.count += 1;
+
+		return instance;
 
 	}
 
@@ -1352,25 +1360,7 @@ class Janus {
 		return user_id;
 
 	}
-
-
-
-	private updateContext = () => {
-
-		try {
-
-			const file = JSON.stringify(this.rooms);
-				
-			fs.writeFileSync(this.p, file);
-
-		} catch(error) {
-
-			this.onError(error);
-
-		}
-
-	}
-
+	
 }
 
 export default Janus;
