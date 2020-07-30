@@ -1,10 +1,6 @@
-import { v1 as uuidv1 } from "uuid";
-import WebSocket = require("ws");
-import JanusInstance from "./janus-gateway-instance";
+import { JanusInstance } from "./janus-gateway-instance";
+const WebSocket = require("ws");
 const url = require("url");
-
-
-
 const uniq = (list:string[]) : boolean => list.length===[...new Set(list)].length;
 
 
@@ -50,17 +46,16 @@ interface JanusInstanceOptions {
 
 interface JanusOptions {
 	instances: JanusInstanceOptions[],
+	getId: () => string,
 	retrieveContext: () => any,
-	updateContext: (context:any) => any,	
-	onConnected: () => void,
-	onDisconnected: () => void,
+	updateContext: (context:any) => any,
+	selectInstance: (instances:JanusInstance[]) => JanusInstance,
 	onError: (error:any) => void,
-	logger?: {
-		info? : (message:string) => void,
-		error? : (error:any) => void,
-		json? : (json:any) => void
+	logger: {
+		info : (message:string) => void,
+		error : (error:any) => void,
+		json : (json:any) => void
 	},
-	selectInstance?: (instances:JanusInstance[]) => JanusInstance,
 	webSocketOptions?: any
 }
 
@@ -74,7 +69,7 @@ interface Response {
 
 
 
-class Janus {
+export class Janus {
 	options:JanusOptions
 	rooms:{ [id:string] : RoomContext }
 	handles: { [id:number] : any }
@@ -137,6 +132,7 @@ class Janus {
 			this.options.logger.json(this.options.instances);
 
 			const instance = new JanusInstance({
+				getId: this.options.getId,
 				options: {
 					protocol,
 					address,
@@ -149,12 +145,12 @@ class Janus {
 				},
 				onDisconnected: () => {
 
-
-
+					this.options.logger.info(`${server_name} disconnected`);
+					
 				},
 				onConnected: () => {
 					
-					
+					this.options.logger.info(`${server_name} connected`);
 
 				},
 				onMessage: (json) => {
@@ -164,16 +160,24 @@ class Janus {
 				},
 				onError: (error) => {
 					
-
+					this.onError(error);
 
 				},
 				logger:this.options.logger
 			});
 			
-			await instance.connect();
+			try {
 
-			this.instances[instance.id] = instance;
-			
+				await instance.connect();
+
+				this.instances[instance.id] = instance;
+
+			} catch(error) {
+
+				this.onError(error);
+				
+			}
+
 		}
 
 		const instances = Object.values(this.instances);
@@ -198,10 +202,6 @@ class Janus {
 		}, this.syncInterval);
 		
 		await this.transport();
-
-		if (this.options.onConnected) {
-			this.options.onConnected();
-		}
 
 	}
 
@@ -233,18 +233,14 @@ class Janus {
 			}
 
 			this.connections = {};
-
-			if (this.options.onDisconnected) {
-				this.options.onDisconnected();
-			}
-
+			
 		});
 
 	}
 
 
 
-	public synchronize = async (instance_id?:string) : Promise<void> => {
+	private synchronize = async (instance_id?:string) : Promise<void> => {
 		
 		const instances = Object.values(this.instances);
 		
@@ -324,10 +320,6 @@ class Janus {
 		}
 
 		this.connections = {};
-
-		//logger.info('initializing transport...');
-
-		//logger.json(options);
 		
 		this.wss = new WebSocket.Server(options);
 		
@@ -371,9 +363,7 @@ class Janus {
 
 
 	private onTimeout = (user_id:string) => {
-
-		//logger.info(`timeout called for user ${user_id}`);
-
+		
 		const { ws } = this.connections[user_id];
 
 		ws.removeListener('message', this.onMessage);
@@ -393,17 +383,13 @@ class Janus {
 		let user_id = this.getUserId(req);
 		
 		if (!user_id) {
-
-			//logger.info(`onConnection - user_id is missing`);
-
+			
 			ws.close();
 
 			return;
 
 		}
-
-		//logger.info(`new socket connection from ${user_id}`);
-
+		
 		if (this.connections[user_id]) {
 
 			this.connections[user_id].ws.removeListener('message', this.onMessage);
@@ -429,24 +415,33 @@ class Janus {
 
 
 
-	private onMessage = (user_id) => (data) => {
-
-		let message;
-
+	private onMessage = (user_id) => async (data) => {
+		let message = null;
+		
 		try {
-
 			message = JSON.parse(data);
-
 		} catch(error) {
-
+			const response = {
+				type: 'error',
+				load: error.message
+			};
 			this.onError(error);
-			
+			this.notify(user_id)(response);
+			return;
 		}
 
-		if (message) {
-			this.onUserMessage(user_id, message);
+ 		try {
+			const response = await this.onUserMessage(user_id, message);
+			this.notify(user_id)(response);
+		} catch(error) {
+			const response = {
+				type: 'error',
+				load: error.message,
+				transaction: message.transaction
+			};
+			this.onError(error);
+			this.notify(user_id)(response);
 		}
-
 	}
 
 
@@ -483,7 +478,11 @@ class Janus {
 			const instance = instances[i];
 			for(const handle_id in instance.handles) {
 				if (instance.handles[handle_id]===user_id) {
-					await instance.detach(handle_id);
+					try {
+						await instance.detach(handle_id);
+					} catch(error) {
+						this.onError(error);
+					}
 				}
 			}
 		}
@@ -515,13 +514,17 @@ class Janus {
 			type: 'keepalive',
 			load: user_id
 		};
+
 	}
 
 
 
 	private onJanusEvent = async (instance_id:string, json) : Promise<void> => {
 		
-		if (!json.sender) { 
+		if (!json.sender) {
+			if (json.janus!=="ack") {
+				this.options.logger.info(`${instance_id} json.sender undefined - ${JSON.stringify(json)}`);
+			}
 			return;
 		}
 
@@ -529,7 +532,8 @@ class Janus {
 
 		const user_id = this.getHandleUser(instance_id, handle_id);
 
-		if (!user_id) {
+		if (!user_id && !this.isLocalHandle(instance_id, handle_id)) {
+			this.options.logger.info(`${instance_id} user_id not found for handle_id ${handle_id} - ${JSON.stringify(json)}`);
 			return;
 		}
 		
@@ -593,12 +597,8 @@ class Janus {
 
 	private onUserMessage = async (
 		user_id: string, 
-		message: {
-			transaction: string,
-			type: string,
-			load?: any
-		}
-	) : Promise<void> => {
+		message: any
+	) : Promise<Response> => {
 		
 		let response : Response = null;
 		
@@ -662,13 +662,16 @@ class Janus {
 				response = await this.onTrickle(message);
 				break;
 			default:
-				response.type = "unknown";
+				response = {
+					type: "unknown",
+					load: null
+				};
 				break;
 		}
 
 		response.transaction = message.transaction;
 
-		this.notify(user_id)(response);
+		return response;
 		
 	}
 
@@ -676,65 +679,50 @@ class Janus {
 
 	public createRoom = async (message:any) : Promise<Response> => {
 		
-		try {
+		const { description } = message.load;
+		
+		const instance : JanusInstance = this.selectInstance();
 
-			const { description } = message.load;
-			
-			const instance : JanusInstance = this.selectInstance();
-
-			if (!instance) {
-				throw new Error(`No instance available`);
-			}
-			
-			const room_id = this.getRoomId();
-
-			const secret = this.getSecret();
-
-			const pin = this.getPin();
-			
-			const result : any = await instance.createRoom({
-				description,
-				secret,
-				pin,
-				room: room_id
-			});
-
-			const { room } = result.plugindata.data;
-
-			const context : RoomContext = {
-				room_id: room,
-				instance_id: instance.id,
-				pin,
-				secret,
-				participants : []
-			};
-			
-			this.rooms[room] = context;
-			
-			this.context = await this.options.updateContext(this.rooms);
-
-			const response = {
-				type:'create_room',
-				load: {
-					context,
-					result
-				}
-			};
-
-			return response;
-
-		} catch(error) {
-
-			this.onError(error);
-
-			const response = {
-				type:'error',
-				load: error.message
-			};
-			
-			return response;
-
+		if (!instance) {
+			throw new Error(`No instance available`);
 		}
+		
+		const room_id = this.getRoomId();
+
+		const secret = this.getSecret();
+
+		const pin = this.getPin();
+		
+		const result : any = await instance.createRoom({
+			description,
+			secret,
+			pin,
+			room: room_id
+		});
+
+		const { room } = result.plugindata.data;
+
+		const context : RoomContext = {
+			room_id: room,
+			instance_id: instance.id,
+			pin,
+			secret,
+			participants : []
+		};
+		
+		this.rooms[room] = context;
+		
+		this.context = await this.options.updateContext(this.rooms);
+
+		const response = {
+			type:'create_room',
+			load: {
+				context,
+				result
+			}
+		};
+
+		return response;
 
 	}
 
@@ -742,41 +730,26 @@ class Janus {
 	
 	public destroyRoom = async (message:any) : Promise<Response> => {
 		
-		try {
+		const { room_id } = message.load;
 
-			const { room_id } = message.load;
+		const context = this.rooms[room_id];
 
-			const context = this.rooms[room_id];
+		const instance = this.instances[context.instance_id];
 
-			const instance = this.instances[context.instance_id];
+		const result = await instance.destroyRoom({
+			handle_id: instance.localHandleId,
+			room: room_id,
+			secret: context.secret
+		});
 
-			const result = await instance.destroyRoom({
-				handle_id: instance.localHandleId,
-				room: room_id,
-				secret: context.secret
-			});
+		delete this.rooms[room_id];
+		
+		const response = {
+			type: 'destroy_room',
+			load: result
+		};
 
-			delete this.rooms[room_id];
-			
-			const response = {
-				type: 'destroy_room',
-				load: result
-			};
-
-			return response;
-			
-		} catch(error) {
-
-			this.onError(error);
-
-			const response = {
-				type: 'error',
-				load: error.message
-			};
-			
-			return response;
-
-		}
+		return response;
 		
 	}
 	
@@ -784,33 +757,18 @@ class Janus {
 
 	public getIceHandle = async (user_id:string, room_id:string) : Promise<Response> => {
 	
-		try {
+		const room = this.rooms[room_id];
 
-			const room = this.rooms[room_id];
+		const instance = this.instances[room.instance_id];
 
-			const instance = this.instances[room.instance_id];
-
-			const handleId = await instance.attach(user_id);
-			
-			const response = {
-				type: 'attach',
-				load: handleId
-			};
-			
-			return response;
-
-		} catch(error) {
-
-			this.onError(error);
-
-			const response = {
-				type: 'error',
-				load: error.message
-			};
-			
-			return response;
-
-		}
+		const handleId = await instance.attach(user_id);
+		
+		const response = {
+			type: 'attach',
+			load: handleId
+		};
+		
+		return response;
 		
 	}
 
@@ -818,49 +776,34 @@ class Janus {
 
 	public joinRoom = async (message) : Promise<Response> => {
 		
-		try {
+		const { 
+			room_id, 
+			display, 
+			handle_id, 
+			feed, 
+			ptype 
+		} = message.load;
 
-			const { 
-				room_id, 
-				display, 
-				handle_id, 
-				feed, 
-				ptype 
-			} = message.load;
+		const room = this.rooms[room_id];
 
-			const room = this.rooms[room_id];
+		const instance = this.instances[room.instance_id];
 
-			const instance = this.instances[room.instance_id];
-
-			const result = await instance.join({
-				room: room.room_id,
-				ptype,
-				feed,
-				handle_id,
-				pin: room.pin,
-				secret: room.secret,
-				display
-			}); 
-			
-			const response = {
-				type: 'join',
-				load: result
-			};
-			
-			return response;
-
-		} catch(error) {
-
-			this.onError(error);
-
-			const response = {
-				type: 'error',
-				load: error.message
-			};
-			
-			return response;
-			
-		}
+		const result = await instance.join({
+			room: room.room_id,
+			ptype,
+			feed,
+			handle_id,
+			pin: room.pin,
+			secret: room.secret,
+			display
+		}); 
+		
+		const response = {
+			type: 'join',
+			load: result
+		};
+		
+		return response;
 
 	}
 
@@ -868,65 +811,50 @@ class Janus {
 
 	public onConfigure = async (message) : Promise<Response> => {
 
-		try {
+		const {
+			jsep,
+			room_id,
+			handle_id,
+			video,
+			audio,
+			ptype
+		} = message.load;
 
-			const {
-				jsep,
-				room_id,
-				handle_id,
-				video,
-				audio,
-				ptype
-			} = message.load;
+		const room = this.rooms[room_id];
 
-			const room = this.rooms[room_id];
+		const instance = this.instances[room.instance_id];
+		
+		const request : any = {
+			room: room_id,
+			pin: room.pin, 
+			secret: room.secret,
+			handle_id,
+			ptype
+		};
 
-			const instance = this.instances[room.instance_id];
-			
-			const request : any = {
-				room: room_id,
-				pin: room.pin, 
-				secret: room.secret,
-				handle_id,
-				ptype
-			};
-
-			if (jsep) {
-				request.jsep = jsep;
-			}
-
-			if (video!==undefined) {
-				request.video = video;
-			}
-
-			if (audio!==undefined) {
-				request.audio = audio;
-			}
-
-			const result : any = await instance.configure(request);
-			
-			const response = {
-				type: 'configure',
-				load: {
-					jsep: result.jsep,
-					data: result.plugindata.data
-				}
-			};
-
-			return response;
-			
-		} catch(error) {
-
-			this.onError(error);
-
-			const response = {
-				type: 'error',
-				load: error.message
-			};
-			
-			return response;
-			
+		if (jsep) {
+			request.jsep = jsep;
 		}
+
+		if (video!==undefined) {
+			request.video = video;
+		}
+
+		if (audio!==undefined) {
+			request.audio = audio;
+		}
+
+		const result : any = await instance.configure(request);
+		
+		const response = {
+			type: 'configure',
+			load: {
+				jsep: result.jsep,
+				data: result.plugindata.data
+			}
+		};
+
+		return response;
 			
 	} 
 
@@ -934,332 +862,212 @@ class Janus {
 
 	public onJoinAndConfigure = async (message) : Promise<Response> => {
 
-		try {
+		const {
+			jsep,
+			room_id,
+			handle_id,
+			ptype,
+			feed
+		} = message.load;
 
-			const {
-				jsep,
-				room_id,
-				handle_id,
-				ptype,
-				feed
-			} = message.load;
+		const room = this.rooms[room_id];
 
-			const room = this.rooms[room_id];
-
-			const instance = this.instances[room.instance_id];
-			
-			const result : any = await instance.joinandconfigure({
-				jsep, 
-				room: room.room_id, 
-				handle_id, 
-				pin: room.pin, 
-				secret: room.secret,
-				ptype,
-				feed
-			});
-			
-			const data = {
-				jsep: result.jsep,
-				data: result.plugindata.data
-			};
-
-			const response = {
-				type: 'joinandconfigure',
-				load: data
-			};
-			
-			return response;
-
-		} catch(error) {
-
-			this.onError(error);
-
-			const response = {
-				type: 'error',
-				load: error.message
-			};
-			
-			return response;
-
-		}
+		const instance = this.instances[room.instance_id];
 		
+		const result : any = await instance.joinandconfigure({
+			jsep, 
+			room: room.room_id, 
+			handle_id, 
+			pin: room.pin, 
+			secret: room.secret,
+			ptype,
+			feed
+		});
+		
+		const data = {
+			jsep: result.jsep,
+			data: result.plugindata.data
+		};
+
+		const response = {
+			type: 'joinandconfigure',
+			load: data
+		};
+		
+		return response;
+
 	} 
 
 
 
 	public onPublish = async (message:any) : Promise<Response> => {
 
-		try {
+		const {
+			jsep,
+			room_id,
+			handle_id
+		} = message.load;
 
-			const {
-				jsep,
-				room_id,
-				handle_id
-			} = message.load;
+		const room = this.rooms[room_id];
 
-			const room = this.rooms[room_id];
+		const instance = this.instances[room.instance_id];
 
-			const instance = this.instances[room.instance_id];
+		const result : any = await instance.publish({
+			jsep, 
+			room: room.room_id, 
+			handle_id, 
+			pin: room.pin, 
+			secret: room.secret
+		});
 
-			const result : any = await instance.publish({
-				jsep, 
-				room: room.room_id, 
-				handle_id, 
-				pin: room.pin, 
-				secret: room.secret
-			});
+		const data = {
+			jsep: result.jsep,
+			data: result.plugindata.data
+		};
 
-			const data = {
-				jsep: result.jsep,
-				data: result.plugindata.data
-			};
+		const response = {
+			type: 'publish',
+			load: data
+		};
 
-			const response = {
-				type: 'publish',
-				load: data
-			};
-
-			return response;
-
-		} catch(error) {
-
-			this.onError(error);
-
-			const response = {
-				type: 'error',
-				load: error.message
-			};
+		return response;
 			
-			return response;
-
-		}
-		
 	} 
 
 
 
 	public onUnpublish = async (message:any) : Promise<Response> => {
 		
-		try {
+		const { room_id, handle_id } = message.load;
 
-			const { room_id, handle_id } = message.load;
+		const room = this.rooms[room_id];
 
-			const room = this.rooms[room_id];
+		const instance = this.instances[room.instance_id];
 
-			const instance = this.instances[room.instance_id];
+		const result = await instance.unpublish({
+			handle_id, 
+			pin: room.pin, 
+			secret: room.secret
+		});
 
-			const result = await instance.unpublish({
-				handle_id, 
-				pin: room.pin, 
-				secret: room.secret
-			});
-
-			const response = {
-				type: 'unpublish',
-				load: result
-			};
-			
-			return response;
-
-		} catch(error) {
-
-			this.onError(error);
-
-			const response = {
-				type: 'error',
-				load: error.message
-			};
-			
-			return response;
-
-		}
+		const response = {
+			type: 'unpublish',
+			load: result
+		};
 		
+		return response;
+			
 	} 
 
 
 
 	public onHangup = async (message:any) : Promise<Response> => {
+	
+		const { room_id, handle_id } = message.load;
+
+		const room = this.rooms[room_id];
+
+		const instance = this.instances[room.instance_id];
+
+		const result = await instance.hangup(handle_id);
+
+		const response = {
+			type: 'hangup',
+			load: result
+		};
 		
-		try {
-
-			const { room_id, handle_id } = message.load;
-
-			const room = this.rooms[room_id];
-
-			const instance = this.instances[room.instance_id];
-
-			const result = await instance.hangup(handle_id);
-
-			const response = {
-				type: 'hangup',
-				load: result
-			};
+		return response;
 			
-			return response;
-
-		} catch(error) {
-
-			this.onError(error);
-
-			const response = {
-				type: 'error',
-				load: error.message
-			};
-			
-			return response;
-
-		}
-		
 	} 
 
 
 
 	public onDetach = async (message:any) : Promise<Response> => {
 		
-		try {
+		const { room_id, handle_id } = message.load;
 
-			const { room_id, handle_id } = message.load;
+		const room = this.rooms[room_id];
 
-			const room = this.rooms[room_id];
+		const instance = this.instances[room.instance_id];
 
-			const instance = this.instances[room.instance_id];
+		const result = await instance.detach(handle_id);
 
-			const result = await instance.detach(handle_id);
-
-			const response = {
-				type: 'detach',
-				load: result
-			};
-			
-			return response;
-
-		} catch(error) {
-
-			this.onError(error);
-
-			const response = {
-				type: 'error',
-				load: error.message
-			};
-			
-			return response;
-
-		}
+		const response = {
+			type: 'detach',
+			load: result
+		};
 		
-	} 
+		return response;
+			
+	}
 
 
 
 	public onLeave = async (message:any) : Promise<Response> => {
 		
-		try {
+		const { room_id, handle_id } = message.load;
 
-			const { room_id, handle_id } = message.load;
+		const room = this.rooms[room_id];
 
-			const room = this.rooms[room_id];
+		const instance = this.instances[room.instance_id];
 
-			const instance = this.instances[room.instance_id];
+		const result = await instance.leave(handle_id);
 
-			const result = await instance.leave(handle_id);
-
-			const response = {
-				type: 'leave',
-				load: result
-			};
-			
-			return response;
-
-		} catch(error) {
-
-			this.onError(error);
-
-			const response = {
-				type: 'error',
-				load: error.message
-			};
-			
-			return response;
-
-		}
+		const response = {
+			type: 'leave',
+			load: result
+		};
 		
+		return response;
+			
 	} 
 
 
 
 	public onTrickle = async (message:any) : Promise<Response> => {
+		
+		const { room_id, candidate, handle_id } = message.load;
 
-		try {
+		const room = this.rooms[room_id];
 
-			const { room_id, candidate, handle_id } = message.load;
+		const instance = this.instances[room.instance_id];
 
-			const room = this.rooms[room_id];
+		const result = await instance.trickle(candidate, handle_id);
 
-			const instance = this.instances[room.instance_id];
+		const response = {
+			type: 'trickle',
+			load: result
+		};
 
-			const result = await instance.trickle(candidate, handle_id);
-
-			const response = {
-				type: 'trickle',
-				load: result
-			};
-
-			return response;
-
-		} catch(error) {
-
-			this.onError(error);
-
-			const response = {
-				type: 'error',
-				load: error.message
-			};
+		return response;
 			
-			return response;
-
-		}
-
 	}
 
 
 
 	public onStart = async (message:any) : Promise<Response> => {
 		
-		try {
+		const { room_id, handle_id, answer } = message.load;
 
-			const { room_id, handle_id, answer } = message.load;
+		const room = this.rooms[room_id];
 
-			const room = this.rooms[room_id];
+		const instance = this.instances[room.instance_id];
 
-			const instance = this.instances[room.instance_id];
+		const result = await instance.start({
+			answer,
+			room: room_id, 
+			pin: room.pin, 
+			secret: room.secret, 
+			handle_id
+		});
 
-			const result = await instance.start({
-				answer,
-				room: room_id, 
-				pin: room.pin, 
-				secret: room.secret, 
-				handle_id
-			});
-
-			const response = {
-				type: 'start',
-				load: result
-			};
-			
-			return response;
-
-		} catch(error) {
-			
-			this.onError(error);
-
-			const response = {
-				type: 'error',
-				load: error.message
-			};
-			
-			return response;
-
-		}
+		const response = {
+			type: 'start',
+			load: result
+		};
 		
+		return response;
+
 	}
 
 
@@ -1283,8 +1091,10 @@ class Janus {
 
 	private selectInstance = () => {
 		
-		const instances : JanusInstance[] = Object.values(this.instances);
+		let instances : JanusInstance[] = Object.values(this.instances);
 
+		instances = instances.filter((instance) => instance.connected);
+		
 		if (instances.length===0) {
 			return null;
 		}
@@ -1315,9 +1125,25 @@ class Janus {
 
 
 
+	private isLocalHandle = (instance_id:string, handle_id:number) : boolean => {
+
+		const instance = this.instances[instance_id];
+
+		if (instance) {
+
+			return handle_id==instance.localHandleId;
+
+		}
+
+		return false;
+		
+	}
+
+
+
 	private getPin = () : string => {
 
-		const pin = uuidv1();
+		const pin = this.options.getId();
 
 		return pin;
 
@@ -1327,7 +1153,7 @@ class Janus {
 
 	private getRoomId = () : string => {
 
-		const id = uuidv1();
+		const id = this.options.getId();
 
 		return id;
 
@@ -1337,7 +1163,7 @@ class Janus {
 
 	private getSecret = () => {
 
-		const secret = uuidv1();
+		const secret = this.options.getId();
 
 		return secret;
 
@@ -1362,5 +1188,3 @@ class Janus {
 	}
 	
 }
-
-export default Janus;

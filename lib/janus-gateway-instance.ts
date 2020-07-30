@@ -1,11 +1,11 @@
-import { v1 as uuidv1 } from 'uuid';
-import { exec } from 'child_process';
-import ReconnectingWebSocket from 'reconnecting-websocket';
+
+const exec = require('child_process').exec;
 const WebSocket = require('ws');
+import ReconnectingWebSocket from 'reconnecting-websocket';
 
 
 
-class JanusInstance {
+export class JanusInstance {
 	id:string
 	localHandleId:number
 	handles:{ [handle_id:number]: string }
@@ -29,20 +29,21 @@ class JanusInstance {
 	adminSecret:string
 	activeHandles:number
 	server:string
+	logger:any
 	stats:{
 		container:string,
 		memusage:string,
 		memperc:string,
 		cpuperc:string
 	}
-	notifyConnected:() => void
-	notifyAdminConnected:() => void
+	getId:() => string
+	notifyConnected:(error?:any) => void
+	notifyAdminConnected:(error?:any) => void
 	onDisconnected:() => void
 	onConnected:() => void
 	onMessage:(message:any) => void
 	_onError:(error:any) => void
-	logger:any
-
+	
 	
 
 	constructor({
@@ -51,14 +52,16 @@ class JanusInstance {
 		onMessage,
 		onDisconnected,
 		onConnected,
-		onError
+		onError,
+		getId
 	}) {
 		
 		this.onMessage = onMessage;
 		this.onDisconnected = onDisconnected;
 		this.onConnected = onConnected;
+		this.getId = getId;
 		this._onError = onError;
-		
+
 		const {
 			protocol,
 			address,
@@ -103,9 +106,7 @@ class JanusInstance {
 		if (this._onError) {
 			this._onError(error); 
 		}
-
-		this.logger.error(`${location} ${error.message}`);
-
+		
 	}
 
 
@@ -158,11 +159,15 @@ class JanusInstance {
 
 		});
 
-		return new Promise((resolve) => {
+		return new Promise((resolve, reject) => {
 
-			this.notifyConnected = () => {
+			this.notifyConnected = (error) => {
 				
-				resolve();
+				if (error) {
+					reject(error);
+				} else {
+					resolve();
+				}
 				
 			};
 
@@ -186,7 +191,31 @@ class JanusInstance {
 
 
 
+	private onAdminMessage = (response:MessageEvent) => {
+			
+		let message = null;
+
+		try {
+			message = JSON.parse(response.data);
+		} catch(error) {}
+
+		if (message) { 
+			const id = message.transaction;
+			const resolve = this.adminCalls[id];
+			if (resolve) {
+				resolve(message);
+			}
+		}
+
+	}
+
+
+
 	public connectAdmin = () : Promise<void> => {
+
+		if (this.adminWs) {
+			this.adminWs.removeEventListener('message', this.onAdminMessage);
+		}
 		
 		const server = `${this.protocol}://${this.address}:${this.adminPort}`;
 		
@@ -198,23 +227,7 @@ class JanusInstance {
 
 		this.adminWs = new ReconnectingWebSocket(server, 'janus-admin-protocol', options);
 
-		this.adminWs.addEventListener('message', (response:MessageEvent) => {
-			
-			let message = null;
-
-			try {
-				message = JSON.parse(response.data);
-			} catch(error) {}
-
-			if (message) { 
-				const id = message.transaction;
-				const resolve = this.adminCalls[id];
-				if (resolve) {
-					resolve(message);
-				}
-			}
-
-		});
+		this.adminWs.addEventListener('message', this.onAdminMessage);
 		
         this.adminWs.addEventListener('close', () => {
 			
@@ -239,12 +252,16 @@ class JanusInstance {
 
 		});
 
-		return new Promise((resolve) => {
+		return new Promise((resolve, reject) => {
 
-			this.notifyAdminConnected = () => {
+			this.notifyAdminConnected = (error) => {
 				
-				resolve();
-
+				if (error) {
+					reject(error);
+				} else {
+					resolve();
+				}
+				
 			};
 
 		});
@@ -266,43 +283,56 @@ class JanusInstance {
 
 
 	private _onConnected = async () => {
-		
-		this.logger.info('websocket connected', this.id);
 
-		this.connected = true;
-		
-		let response = null;
+		try {
 
-		if (this.sessionId) {
-			response = await this.claimSession();
-		} else {
-			response = await this.createSession();
+			let response = null;
+			
+			if (this.sessionId) {
+				response = await this.claimSession();
+			} else {
+				response = await this.createSession();
+			}
+
+			this.logger.info('session claimed', this.id);
+
+			this.logger.json(response);
+			
+			this.onSession(response);
+
+			const handleId = await this.attach();
+
+			this.localHandleId = handleId;
+
+			this.logger.info(`attached ${handleId}`, this.id);
+			
+			await this.connectAdmin();
+
+			this.logger.info(`admin connected`, this.id);
+
+			//const info = await this.info();
+
+			if (this.notifyConnected) {
+				this.notifyConnected();
+				delete this.notifyConnected;
+			}
+
+			this.connected = true;
+			
+			this.logger.info('websocket connected', this.id);
+
+			this.onConnected();
+
+		} catch(error) {
+
+			if (this.notifyConnected) {
+				this.notifyConnected(error);
+				delete this.notifyConnected;
+			}
+
+			this.onError(error, '_onConnected');
+			
 		}
-
-		this.logger.info('session claimed', this.id);
-
-		this.logger.json(response);
-		
-		this.onSession(response);
-
-		const handleId = await this.attach();
-
-		this.localHandleId = handleId;
-
-		this.logger.info(`attached ${handleId}`, this.id);
-		
-		await this.connectAdmin();
-
-		this.logger.info(`admin connected`, this.id);
-
-		//const info = await this.info();
-
-		if (this.notifyConnected) {
-			this.notifyConnected();
-			delete this.notifyConnected;
-		}
-
-		this.onConnected();
 
 	}
 
@@ -322,7 +352,7 @@ class JanusInstance {
 		
 		const timeout = this.transactionTimeout;
 
-		const id = uuidv1();
+		const id = this.getId();
 
 		request.transaction = id;
 		
@@ -401,7 +431,7 @@ class JanusInstance {
 
 		const timeout = this.transactionTimeout;
 
-		const id = uuidv1();
+		const id = this.getId();
 
 		request.transaction = id;
 		
@@ -484,34 +514,42 @@ class JanusInstance {
 
 	private getJanusError = (request, response) => {
 
-		let error = `${request.janus} \n`;
+		try {
 
-		if (this.sessionId) {
-			error += this.sessionId;
-			error += `\n`;
-		}
+			let error = `${request.janus} \n`;
 
-		if (request.body && request.body.request) {
-			error += request.body.request;
-			error += `\n`;
-		} 
+			if (this.sessionId) {
+				error += this.sessionId;
+				error += `\n`;
+			}
 
-		if (response.janus===`error`) {
-			error += `${response.error.code} \n ${response.error.reason} \n`;
-			const e = new Error(error);
-			return e;
-		} else if(
-			response.plugindata && 
-			response.plugindata.data &&
-			response.plugindata.data.error
-		) {
-			error += `${response.plugindata.data.error_code} \n ${response.plugindata.data.error} \n`;
-			const e = new Error(error);
-			return e;
-		} else if(response.janus===`timeout`) {
-			error += `timeout`;
-			const e = new Error(error);
-			return e;
+			if (request.body && request.body.request) {
+				error += request.body.request;
+				error += `\n`;
+			} 
+
+			if (response.janus===`error`) {
+				error += `${response.error.code} \n ${response.error.reason} \n`;
+				const e = new Error(error);
+				return e;
+			} else if(
+				response.plugindata && 
+				response.plugindata.data &&
+				response.plugindata.data.error
+			) {
+				error += `${response.plugindata.data.error_code} \n ${response.plugindata.data.error} \n`;
+				const e = new Error(error);
+				return e;
+			} else if(response.janus===`timeout`) {
+				error += `timeout`;
+				const e = new Error(error);
+				return e;
+			}
+
+		} catch(error) {
+
+			this.onError(error, 'getJanusError');
+
 		}
 		
 		return null;
@@ -838,7 +876,7 @@ class JanusInstance {
 
 	public attach = (user_id?:string) : number => {
 
-		const opaqueId = uuidv1();
+		const opaqueId = this.getId();
 
 		return this.transaction({
 			janus: "attach",
@@ -1235,7 +1273,3 @@ class JanusInstance {
 	}
 
 }
-
-
-
-export default JanusInstance;
