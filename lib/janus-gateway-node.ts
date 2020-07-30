@@ -532,8 +532,10 @@ export class Janus {
 
 		const user_id = this.getHandleUser(instance_id, handle_id);
 
-		if (!user_id && !this.isLocalHandle(instance_id, handle_id)) {
-			this.options.logger.info(`${instance_id} user_id not found for handle_id ${handle_id} - ${JSON.stringify(json)}`);
+		if (!user_id) {
+			if (!this.isLocalHandle(instance_id, handle_id)) {
+				this.options.logger.info(`${instance_id} user_id not found for handle_id ${handle_id} - ${JSON.stringify(json)}`);
+			}
 			return;
 		}
 		
@@ -632,13 +634,13 @@ export class Janus {
 				};
 				break;
 			case 'join':
-				response = await this.joinRoom(message);
+				response = await this.joinRoom(user_id, message);
 				break;
 			case 'configure':
 				response = await this.onConfigure(message);
 				break;
 			case 'joinandconfigure':
-				response = await this.onJoinAndConfigure(message);
+				response = await this.onJoinAndConfigure(user_id, message);
 				break;
 			case 'publish':
 				response = await this.onPublish(message);
@@ -774,7 +776,7 @@ export class Janus {
 
 
 
-	public joinRoom = async (message) : Promise<Response> => {
+	public joinRoom = async (user_id, message) : Promise<Response> => {
 		
 		const { 
 			room_id, 
@@ -786,9 +788,14 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
+		this.options.logger.info(`user ${ptype} ${user_id} with handle ${handle_id} is joining room ${room_id} which already contains participants...`);
+
+		this.options.logger.json(room.participants);
+
 		const instance = this.instances[room.instance_id];
 
 		const result = await instance.join({
+			user_id,
 			room: room.room_id,
 			ptype,
 			feed,
@@ -860,7 +867,7 @@ export class Janus {
 
 
 
-	public onJoinAndConfigure = async (message) : Promise<Response> => {
+	public onJoinAndConfigure = async (user_id, message) : Promise<Response> => {
 
 		const {
 			jsep,
@@ -878,6 +885,7 @@ export class Janus {
 			jsep, 
 			room: room.room_id, 
 			handle_id, 
+			user_id,
 			pin: room.pin, 
 			secret: room.secret,
 			ptype,
@@ -1126,8 +1134,10 @@ export class Janus {
 
 
 	private isLocalHandle = (instance_id:string, handle_id:number) : boolean => {
-
+		
 		const instance = this.instances[instance_id];
+
+		this.options.logger.info(`isLocalHandle: instance_id - ${instance_id}, handle_id - ${handle_id}, localHandleId - ${instance.localHandleId}`);
 
 		if (instance) {
 

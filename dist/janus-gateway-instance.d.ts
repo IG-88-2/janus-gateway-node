@@ -90,6 +90,7 @@ export declare class JanusInstance {
     }) => any;
     attach: (user_id?: string) => number;
     join: (data: {
+        user_id: string;
         room: string;
         handle_id: number;
         pin: string;
@@ -101,6 +102,7 @@ export declare class JanusInstance {
         display?: string;
     }) => any;
     joinandconfigure: (data: {
+        user_id: string;
         jsep: any;
         room: string;
         handle_id: number;

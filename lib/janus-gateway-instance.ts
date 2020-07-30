@@ -900,6 +900,7 @@ export class JanusInstance {
 
 
 	public join = (data : {
+		user_id: string,
 		room: string, 
 		handle_id: number, 
 		pin: string, 
@@ -920,7 +921,8 @@ export class JanusInstance {
 			audiocodec,
 			videocodec,
 			feed,
-			display
+			display,
+			user_id
 		} = data;
 
 		const request : any = {
@@ -935,9 +937,13 @@ export class JanusInstance {
 				offer_video: true,
 				offer_audio: true,
 				video: true,
-				audio: true,
+				audio: true
 			}
 		};
+
+		if (ptype==="publisher") {
+			request.body.id = user_id;
+		}
 
 		if (feed) {
 			request.body.feed = feed;
@@ -962,6 +968,7 @@ export class JanusInstance {
 
 
 	public joinandconfigure = (data : {
+		user_id: string,
 		jsep: any, 
 		room: string, 
 		handle_id: number, 
@@ -982,7 +989,8 @@ export class JanusInstance {
 			ptype,
 			audiocodec,
 			videocodec,
-			feed
+			feed,
+			user_id
 		} = data;
 
 		const request : any = {
@@ -1003,6 +1011,10 @@ export class JanusInstance {
 				secret
 			}
 		};
+		
+		if (ptype==="publisher") {
+			request.body.id = user_id;
+		}
 
 		if (feed) {
 			request.body.feed = feed;

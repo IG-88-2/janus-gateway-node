@@ -79,9 +79,9 @@ export declare class Janus {
     createRoom: (message: any) => Promise<Response>;
     destroyRoom: (message: any) => Promise<Response>;
     getIceHandle: (user_id: string, room_id: string) => Promise<Response>;
-    joinRoom: (message: any) => Promise<Response>;
+    joinRoom: (user_id: any, message: any) => Promise<Response>;
     onConfigure: (message: any) => Promise<Response>;
-    onJoinAndConfigure: (message: any) => Promise<Response>;
+    onJoinAndConfigure: (user_id: any, message: any) => Promise<Response>;
     onPublish: (message: any) => Promise<Response>;
     onUnpublish: (message: any) => Promise<Response>;
     onHangup: (message: any) => Promise<Response>;
@@ -92,6 +92,7 @@ export declare class Janus {
     private _selectInstance;
     private selectInstance;
     private getHandleUser;
+    private isLocalHandle;
     private getPin;
     private getRoomId;
     private getSecret;

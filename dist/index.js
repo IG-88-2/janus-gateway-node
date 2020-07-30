@@ -1072,7 +1072,7 @@
                 });
             };
             this.join = (data) => {
-                const { room, handle_id, pin, secret, ptype, audiocodec, videocodec, feed, display } = data;
+                const { room, handle_id, pin, secret, ptype, audiocodec, videocodec, feed, display, user_id } = data;
                 const request = {
                     janus: "message",
                     handle_id,
@@ -1085,9 +1085,12 @@
                         offer_video: true,
                         offer_audio: true,
                         video: true,
-                        audio: true,
+                        audio: true
                     }
                 };
+                if (ptype === "publisher") {
+                    request.body.id = user_id;
+                }
                 if (feed) {
                     request.body.feed = feed;
                 }
@@ -1103,7 +1106,7 @@
                 return this.transaction(request);
             };
             this.joinandconfigure = (data) => {
-                const { jsep, room, handle_id, pin, secret, ptype, audiocodec, videocodec, feed } = data;
+                const { jsep, room, handle_id, pin, secret, ptype, audiocodec, videocodec, feed, user_id } = data;
                 const request = {
                     janus: "message",
                     jsep,
@@ -1122,6 +1125,9 @@
                         secret
                     }
                 };
+                if (ptype === "publisher") {
+                    request.body.id = user_id;
+                }
                 if (feed) {
                     request.body.feed = feed;
                 }
@@ -1551,13 +1557,17 @@
             };
             this.onJanusEvent = async (instance_id, json) => {
                 if (!json.sender) {
-                    this.options.logger.info(`${instance_id} json.sender undefined - ${JSON.stringify(json)}`);
+                    if (json.janus !== "ack") {
+                        this.options.logger.info(`${instance_id} json.sender undefined - ${JSON.stringify(json)}`);
+                    }
                     return;
                 }
                 const handle_id = json.sender;
                 const user_id = this.getHandleUser(instance_id, handle_id);
                 if (!user_id) {
-                    this.options.logger.info(`${instance_id} user_id not found for handle_id ${handle_id} - ${JSON.stringify(json)}`);
+                    if (!this.isLocalHandle(instance_id, handle_id)) {
+                        this.options.logger.info(`${instance_id} user_id not found for handle_id ${handle_id} - ${JSON.stringify(json)}`);
+                    }
                     return;
                 }
                 const notify = this.notify(user_id);
@@ -1636,13 +1646,13 @@
                         };
                         break;
                     case 'join':
-                        response = await this.joinRoom(message);
+                        response = await this.joinRoom(user_id, message);
                         break;
                     case 'configure':
                         response = await this.onConfigure(message);
                         break;
                     case 'joinandconfigure':
-                        response = await this.onJoinAndConfigure(message);
+                        response = await this.onJoinAndConfigure(user_id, message);
                         break;
                     case 'publish':
                         response = await this.onPublish(message);
@@ -1735,11 +1745,14 @@
                 };
                 return response;
             };
-            this.joinRoom = async (message) => {
+            this.joinRoom = async (user_id, message) => {
                 const { room_id, display, handle_id, feed, ptype } = message.load;
                 const room = this.rooms[room_id];
+                this.options.logger.info(`user ${ptype} ${user_id} with handle ${handle_id} is joining room ${room_id} which already contains participants...`);
+                this.options.logger.json(room.participants);
                 const instance = this.instances[room.instance_id];
                 const result = await instance.join({
+                    user_id,
                     room: room.room_id,
                     ptype,
                     feed,
@@ -1784,7 +1797,7 @@
                 };
                 return response;
             };
-            this.onJoinAndConfigure = async (message) => {
+            this.onJoinAndConfigure = async (user_id, message) => {
                 const { jsep, room_id, handle_id, ptype, feed } = message.load;
                 const room = this.rooms[room_id];
                 const instance = this.instances[room.instance_id];
@@ -1792,6 +1805,7 @@
                     jsep,
                     room: room.room_id,
                     handle_id,
+                    user_id,
                     pin: room.pin,
                     secret: room.secret,
                     ptype,
@@ -1930,6 +1944,14 @@
                     const user_id = instance.handles[handle_id];
                     return user_id;
                 }
+            };
+            this.isLocalHandle = (instance_id, handle_id) => {
+                const instance = this.instances[instance_id];
+                this.options.logger.info(`isLocalHandle: instance_id - ${instance_id}, handle_id - ${handle_id}, localHandleId - ${instance.localHandleId}`);
+                if (instance) {
+                    return handle_id == instance.localHandleId;
+                }
+                return false;
             };
             this.getPin = () => {
                 const pin = this.options.getId();
