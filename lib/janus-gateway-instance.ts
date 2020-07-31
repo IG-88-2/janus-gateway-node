@@ -642,9 +642,15 @@ export class JanusInstance {
 
 
 	private getStats = () => {
-			
-		const command = `docker stats --no-stream --format "{{.Container}} > {{.MemUsage}} > {{.MemPerc}} > {{.CPUPerc}}" ${this.id}`;
 
+		let command = null;
+
+		if (process.platform==='linux') {
+			command = `sudo docker stats --no-stream --format "{{.Container}} > {{.MemUsage}} > {{.MemPerc}} > {{.CPUPerc}}" ${this.id}`;
+		} else {
+			command = `docker stats --no-stream --format "{{.Container}} > {{.MemUsage}} > {{.MemPerc}} > {{.CPUPerc}}" ${this.id}`;
+		}
+		
 		const onResult = (error, stdout, stderr) => { 
 			
 			let stats : any = {};

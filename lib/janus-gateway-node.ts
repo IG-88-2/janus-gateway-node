@@ -1136,9 +1136,7 @@ export class Janus {
 	private isLocalHandle = (instance_id:string, handle_id:number) : boolean => {
 		
 		const instance = this.instances[instance_id];
-
-		this.options.logger.info(`isLocalHandle: instance_id - ${instance_id}, handle_id - ${handle_id}, localHandleId - ${instance.localHandleId}`);
-
+		
 		if (instance) {
 
 			return handle_id==instance.localHandleId;
