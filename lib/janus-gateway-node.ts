@@ -106,7 +106,8 @@ export class Janus {
 		this.syncInterval = 30000;
 		
 		this.defaultWebSocketOptions = {
-			host: '127.0.0.1',
+			//host: '3.121.126.200',
+			//host: '127.0.0.1', 
 			port: 8080,
 			backlog: 10,
 			clientTracking: false,
@@ -306,7 +307,11 @@ export class Janus {
 
 	private transport = () => {
 
+		this.options.logger.info(`launching transport...`);
+
 		let options = this.defaultWebSocketOptions;
+		
+		this.options.logger.json(options);
 		
 		if (this.options.webSocketOptions) {
 			options = this.options.webSocketOptions;
@@ -327,6 +332,8 @@ export class Janus {
 		
 		this.wss.on('listening', () => {
 
+			this.options.logger.info(`websocket transport is launched!`);
+
 			this.listening = true;
 
 			if (this.notifyConnected) {
@@ -337,6 +344,8 @@ export class Janus {
 		});
 		
 		this.wss.on('close', (error) => {
+
+			this.options.logger.info(`websocket transport is closed!`);
 
 			this.listening = false;
 
