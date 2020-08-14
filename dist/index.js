@@ -1,8 +1,8 @@
 (function (global, factory) {
-    typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
-    typeof define === 'function' && define.amd ? define(['exports'], factory) :
-    (global = global || self, factory(global['janus-gateway-node'] = {}));
-}(this, (function (exports) { 'use strict';
+    typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('child_process')) :
+    typeof define === 'function' && define.amd ? define(['exports', 'child_process'], factory) :
+    (global = global || self, factory(global['janus-gateway-node'] = {}, global.child_process));
+}(this, (function (exports, child_process) { 'use strict';
 
     /*! *****************************************************************************
     Copyright (c) Microsoft Corporation. All rights reserved.
@@ -593,7 +593,7 @@
     const exec = require('child_process').exec;
     const WebSocket$1 = require('ws');
     class JanusInstance {
-        constructor({ options, logger, onMessage, onDisconnected, onConnected, onError, getId }) {
+        constructor({ options, logger, onMessage, onDisconnected, onConnected, onError, generateId }) {
             this.onError = (error, location) => {
                 if (this._onError) {
                     this._onError(error);
@@ -742,7 +742,7 @@
             };
             this.transaction = (request) => {
                 const timeout = this.transactionTimeout;
-                const id = this.getId();
+                const id = this.generateId();
                 request.transaction = id;
                 if (this.sessionId) {
                     request.session_id = this.sessionId;
@@ -768,7 +768,7 @@
                         if (request.janus !== "keepalive" &&
                             !(request.body && request.body.request === "list") &&
                             !(request.body && request.body.request === "listparticipants")) {
-                            this.logger.json(Object.assign({}, message, { request }));
+                            this.logger.json(Object.assign(Object.assign({}, message), { request }));
                         }
                         let done = this.transactionMatch(id, request, message);
                         if (done) {
@@ -793,7 +793,7 @@
             };
             this.adminTransaction = (request) => {
                 const timeout = this.transactionTimeout;
-                const id = this.getId();
+                const id = this.generateId();
                 request.transaction = id;
                 request.admin_secret = this.adminSecret;
                 let r = null;
@@ -930,7 +930,13 @@
                 });
             };
             this.getStats = () => {
-                const command = `docker stats --no-stream --format "{{.Container}} > {{.MemUsage}} > {{.MemPerc}} > {{.CPUPerc}}" ${this.id}`;
+                let command = null;
+                if (process.platform === 'linux') {
+                    command = `sudo docker stats --no-stream --format "{{.Container}} > {{.MemUsage}} > {{.MemPerc}} > {{.CPUPerc}}" ${this.id}`;
+                }
+                else {
+                    command = `docker stats --no-stream --format "{{.Container}} > {{.MemUsage}} > {{.MemPerc}} > {{.CPUPerc}}" ${this.id}`;
+                }
                 const onResult = (error, stdout, stderr) => {
                     let stats = {};
                     try {
@@ -1057,7 +1063,7 @@
                 return this.transaction(request);
             };
             this.attach = (user_id) => {
-                const opaqueId = this.getId();
+                const opaqueId = this.generateId();
                 return this.transaction({
                     janus: "attach",
                     plugin: "janus.plugin.videoroom",
@@ -1271,7 +1277,7 @@
             this.onMessage = onMessage;
             this.onDisconnected = onDisconnected;
             this.onConnected = onConnected;
-            this.getId = getId;
+            this.generateId = generateId;
             this._onError = onError;
             const { protocol, address, port, adminPort, adminKey, adminSecret, server_name } = options;
             this.id = server_name;
@@ -1306,21 +1312,52 @@
     const uniq = (list) => list.length === [...new Set(list)].length;
     class Janus {
         constructor(options) {
+            this.generateInstances = async () => {
+                const instances = [];
+                const start_ws_port = 8188;
+                const start_admin_ws_port = 7188;
+                for (let i = 0; i < this.instancesAmount; i++) {
+                    instances.push({
+                        id: this.options.generateId(),
+                        admin_key: this.options.generateId(),
+                        server_name: `instance_${i}`,
+                        log_prefix: `instance_${i}:`,
+                        docker_ip: `127.0.0.${1 + i}`,
+                        ws_port: start_ws_port + i,
+                        admin_ws_port: start_admin_ws_port + i,
+                        stun_server: "stun.voip.eutelia.it",
+                        nat_1_1_mapping: "127.0.0.1",
+                        stun_port: 3478,
+                        debug_level: 5
+                    });
+                }
+                await this.launchContainers(instances);
+                return instances.map(({ admin_key, server_name, ws_port, docker_ip, admin_ws_port, log_prefix, stun_server, stun_port, id, debug_level }) => {
+                    return {
+                        protocol: `ws`,
+                        address: docker_ip,
+                        port: ws_port,
+                        adminPort: admin_ws_port,
+                        adminKey: admin_key,
+                        server_name
+                    };
+                });
+            };
             this.initialize = async () => {
                 this.instances = {};
-                for (let i = 0; i < this.options.instances.length; i++) {
-                    const { protocol, address, port, adminPort, adminKey, server_name, ps } = this.options.instances[i];
+                const list = await this.generateInstances();
+                for (let i = 0; i < list.length; i++) {
+                    const { protocol, address, port, adminPort, adminKey, server_name } = list[i];
                     this.options.logger.info(`ready to connect instance ${i}`);
-                    this.options.logger.json(this.options.instances);
+                    this.options.logger.json(list);
                     const instance = new JanusInstance({
-                        getId: this.options.getId,
+                        generateId: this.options.generateId,
                         options: {
                             protocol,
                             address,
                             port,
                             adminPort,
                             adminKey,
-                            ps,
                             server_name,
                             adminSecret: "janusoverlord"
                         },
@@ -1379,6 +1416,64 @@
                     }
                     this.connections = {};
                 });
+                await this.terminateContainers();
+            };
+            this.launchContainers = async (instances) => {
+                this.options.logger.info(`launching ${instances.length} containers`);
+                this.options.logger.json(instances);
+                const step = 101;
+                const maxBuffer = 1024 * 1024 * 1024;
+                let udpStart = 20000;
+                let udpEnd = udpStart + step - 1;
+                for (let i = 0; i < instances.length; i++) {
+                    const { id, admin_key, server_name, ws_port, log_prefix, admin_ws_port, stun_server, stun_port, docker_ip, debug_level, nat_1_1_mapping } = instances[i];
+                    const args = [
+                        ["ID", id],
+                        ["ADMIN_KEY", admin_key],
+                        ["SERVER_NAME", server_name],
+                        ["WS_PORT", ws_port],
+                        ["ADMIN_WS_PORT", admin_ws_port],
+                        ["LOG_PREFIX", log_prefix],
+                        ["DOCKER_IP", docker_ip],
+                        ["DEBUG_LEVEL", debug_level],
+                        ["NAT_1_1_MAPPING", nat_1_1_mapping],
+                        ["RTP_PORT_RANGE", `${udpStart}-${udpEnd}`],
+                        ["STUN_SERVER", stun_server],
+                        ["STUN_PORT", stun_port]
+                    ];
+                    let command = `docker run -i --cap-add=NET_ADMIN --name ${server_name} `;
+                    command += `-p ${docker_ip}:${udpStart}-${udpEnd}:${udpStart}-${udpEnd}/udp `;
+                    command += `-p ${ws_port}:${ws_port} `;
+                    command += `-p ${admin_ws_port}:${admin_ws_port} `;
+                    command += `${args.map(([name, value]) => `-e ${name}="${value}"`).join(' ')} `;
+                    command += `${this.dockerJanusImage}`;
+                    this.options.logger.info(`launching container ${i}...${command}`);
+                    await new Promise((resolve, reject) => child_process.exec(command, {
+                        maxBuffer
+                    }, (error, stdout, stderr) => {
+                        this.options.logger.info(`container ${server_name} terminated`);
+                        if (error) {
+                            if (error.message) {
+                                this.options.logger.error(error.message);
+                            }
+                            else {
+                                this.options.logger.error(error);
+                            }
+                        }
+                        resolve();
+                    }));
+                    udpStart += step;
+                    udpEnd += step;
+                }
+                this.containersLaunched = true;
+            };
+            this.terminateContainers = async () => {
+                const command = process.platform === 'linux' ? `docker rm $(docker ps -a -q)` : `FOR /F %A IN ('docker ps -q') DO docker rm -f %~A`;
+                try {
+                    const result = await child_process.exec(command);
+                }
+                catch (error) { }
+                this.containersLaunched = false;
             };
             this.synchronize = async (instance_id) => {
                 const instances = Object.values(this.instances);
@@ -1426,7 +1521,9 @@
                 }
             };
             this.transport = () => {
+                this.options.logger.info(`launching transport...`);
                 let options = this.defaultWebSocketOptions;
+                this.options.logger.json(options);
                 if (this.options.webSocketOptions) {
                     options = this.options.webSocketOptions;
                 }
@@ -1440,6 +1537,7 @@
                 this.wss = new WebSocket$2.Server(options);
                 this.wss.on('connection', this.onConnection);
                 this.wss.on('listening', () => {
+                    this.options.logger.info(`websocket transport is launched!`);
                     this.listening = true;
                     if (this.notifyConnected) {
                         this.notifyConnected();
@@ -1447,6 +1545,7 @@
                     }
                 });
                 this.wss.on('close', (error) => {
+                    this.options.logger.info(`websocket transport is closed!`);
                     this.listening = false;
                 });
                 return new Promise((resolve) => {
@@ -1686,7 +1785,7 @@
                 return response;
             };
             this.createRoom = async (message) => {
-                const { description } = message.load;
+                const { description, bitrate, bitrate_cap, fir_freq, videocodec, vp9_profile } = message.load;
                 const instance = this.selectInstance();
                 if (!instance) {
                     throw new Error(`No instance available`);
@@ -1698,6 +1797,11 @@
                     description,
                     secret,
                     pin,
+                    bitrate,
+                    bitrate_cap,
+                    fir_freq,
+                    videocodec,
+                    vp9_profile,
                     room: room_id
                 });
                 const { room } = result.plugindata.data;
@@ -1947,22 +2051,21 @@
             };
             this.isLocalHandle = (instance_id, handle_id) => {
                 const instance = this.instances[instance_id];
-                this.options.logger.info(`isLocalHandle: instance_id - ${instance_id}, handle_id - ${handle_id}, localHandleId - ${instance.localHandleId}`);
                 if (instance) {
                     return handle_id == instance.localHandleId;
                 }
                 return false;
             };
             this.getPin = () => {
-                const pin = this.options.getId();
+                const pin = this.options.generateId();
                 return pin;
             };
             this.getRoomId = () => {
-                const id = this.options.getId();
+                const id = this.options.generateId();
                 return id;
             };
             this.getSecret = () => {
-                const secret = this.options.getId();
+                const secret = this.options.generateId();
                 return secret;
             };
             this.getUserId = (req) => {
@@ -1982,8 +2085,10 @@
             this.stats = {};
             this.keepAliveTimeout = 30000;
             this.syncInterval = 30000;
+            this.instancesAmount = 5;
+            this.containersLaunched = false;
+            this.dockerJanusImage = 'herbert1947/janus-gateway-videoroom';
             this.defaultWebSocketOptions = {
-                host: '127.0.0.1',
                 port: 8080,
                 backlog: 10,
                 clientTracking: false,

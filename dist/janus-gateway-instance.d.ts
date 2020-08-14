@@ -37,21 +37,21 @@ export declare class JanusInstance {
         memperc: string;
         cpuperc: string;
     };
-    getId: () => string;
+    generateId: () => string;
     notifyConnected: (error?: any) => void;
     notifyAdminConnected: (error?: any) => void;
     onDisconnected: () => void;
     onConnected: () => void;
     onMessage: (message: any) => void;
     _onError: (error: any) => void;
-    constructor({ options, logger, onMessage, onDisconnected, onConnected, onError, getId }: {
+    constructor({ options, logger, onMessage, onDisconnected, onConnected, onError, generateId }: {
         options: any;
         logger: any;
         onMessage: any;
         onDisconnected: any;
         onConnected: any;
         onError: any;
-        getId: any;
+        generateId: any;
     });
     private onError;
     connect: () => Promise<void>;
@@ -76,6 +76,11 @@ export declare class JanusInstance {
         description: string;
         secret: string;
         pin: string;
+        bitrate: number;
+        bitrate_cap: boolean;
+        fir_freq: number;
+        videocodec: string;
+        vp9_profile: string;
         room: string;
     }) => any;
     editRoom: (data: any) => any;

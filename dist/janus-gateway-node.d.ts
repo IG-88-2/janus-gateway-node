@@ -14,15 +14,17 @@ interface JanusInstanceOptions {
     adminPort: number;
     adminKey: string;
     server_name: string;
-    ps: NodeJS.Process;
 }
 interface JanusOptions {
-    instances: JanusInstanceOptions[];
-    getId: () => string;
+    generateId: () => string;
     retrieveContext: () => any;
     updateContext: (context: any) => any;
     selectInstance: (instances: JanusInstance[]) => JanusInstance;
     onError: (error: any) => void;
+    keepAliveTimeout: number;
+    syncInterval: number;
+    instancesAmount: number;
+    dockerJanusImage: string;
     logger: {
         info: (message: string) => void;
         error: (error: any) => void;
@@ -58,13 +60,19 @@ export declare class Janus {
     keepAliveTimeout: number;
     syncInterval: number;
     count: number;
+    instancesAmount: number;
+    dockerJanusImage: string;
+    containersLaunched: boolean;
     notifyConnected: () => void;
     defaultWebSocketOptions: any;
     context: any;
     wss: any;
     constructor(options: JanusOptions);
+    generateInstances: () => Promise<JanusInstanceOptions[]>;
     initialize: () => Promise<void>;
     terminate: () => Promise<void>;
+    private launchContainers;
+    private terminateContainers;
     private synchronize;
     private transport;
     private onError;

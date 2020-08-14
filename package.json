@@ -1,6 +1,6 @@
 {
   "name": "janus-gateway-node",
-  "version": "0.0.3",
+  "version": "0.0.6",
   "description": "Janus Gateway Node",
   "author": "Anatoly Strashkevich",
   "homepage": "https://github.com/IG-88-2/janus-gateway-node",
@@ -11,8 +11,7 @@
   "module": "dist/index.esm.js",
   "browser": "dist/index.js",
   "scripts": {
-    "build": "rollup --config rollup.config.ts",
-    "publish": "cd dist & npm publish"
+    "build": "rollup --config rollup.config.ts"
   },
   "devDependencies": {
     "@babel/polyfill": "^7.10.4",
