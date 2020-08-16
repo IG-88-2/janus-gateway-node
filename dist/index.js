@@ -1346,6 +1346,8 @@
             this.initialize = async () => {
                 this.instances = {};
                 const list = await this.generateInstances();
+                this.options.logger.info(`instances generated`);
+                this.options.logger.json(list);
                 for (let i = 0; i < list.length; i++) {
                     const { protocol, address, port, adminPort, adminKey, server_name } = list[i];
                     this.options.logger.info(`ready to connect instance ${i}`);
@@ -1418,7 +1420,7 @@
                 });
                 await this.terminateContainers();
             };
-            this.launchContainers = async (instances) => {
+            this.launchContainers = (instances) => {
                 this.options.logger.info(`launching ${instances.length} containers`);
                 this.options.logger.json(instances);
                 const step = 101;
@@ -1448,7 +1450,7 @@
                     command += `${args.map(([name, value]) => `-e ${name}="${value}"`).join(' ')} `;
                     command += `${this.dockerJanusImage}`;
                     this.options.logger.info(`launching container ${i}...${command}`);
-                    await new Promise((resolve, reject) => child_process.exec(command, {
+                    child_process.exec(command, {
                         maxBuffer
                     }, (error, stdout, stderr) => {
                         this.options.logger.info(`container ${server_name} terminated`);
@@ -1460,8 +1462,7 @@
                                 this.options.logger.error(error);
                             }
                         }
-                        resolve();
-                    }));
+                    });
                     udpStart += step;
                     udpEnd += step;
                 }
@@ -2085,7 +2086,7 @@
             this.stats = {};
             this.keepAliveTimeout = 30000;
             this.syncInterval = 30000;
-            this.instancesAmount = 5;
+            this.instancesAmount = options.instancesAmount;
             this.containersLaunched = false;
             this.dockerJanusImage = 'herbert1947/janus-gateway-videoroom';
             this.defaultWebSocketOptions = {

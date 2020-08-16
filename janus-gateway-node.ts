@@ -111,7 +111,7 @@ export class Janus {
 
 		this.syncInterval = 30000;
 
-		this.instancesAmount = 5;
+		this.instancesAmount = options.instancesAmount;
 
 		this.containersLaunched = false;
 
@@ -191,6 +191,10 @@ export class Janus {
 		
 		const list = await this.generateInstances();
 
+		this.options.logger.info(`instances generated`);
+
+		this.options.logger.json(list);
+
 		for(let i = 0; i < list.length; i++) {
 			const { protocol, address, port, adminPort, adminKey, server_name } = list[i];
 			
@@ -243,7 +247,6 @@ export class Janus {
 				this.onError(error);
 				
 			}
-
 		}
 
 		const instances = Object.values(this.instances);
@@ -308,7 +311,7 @@ export class Janus {
 
 
 	
-	private launchContainers = async (instances) => {
+	private launchContainers = (instances) => {
 		
 		this.options.logger.info(`launching ${instances.length} containers`);
 	
@@ -366,7 +369,7 @@ export class Janus {
 			
 			this.options.logger.info(`launching container ${i}...${command}`);
 	
-			await new Promise((resolve,reject) => exec(
+			exec(
 				command,
 				{
 					maxBuffer
@@ -382,11 +385,9 @@ export class Janus {
 							this.options.logger.error(error);
 						}
 					}
-
-					resolve();
 	
 				}
-			));
+			);
 	
 			udpStart += step;
 			udpEnd += step;
@@ -400,18 +401,24 @@ export class Janus {
 	
 	private terminateContainers = async () => {
 		
-		const command = process.platform==='linux' ? `docker rm $(docker ps -a -q)` : `FOR /F %A IN ('docker ps -q') DO docker rm -f %~A`;
+		if (this.containersLaunched) {
+			const command = process.platform==='linux' ? `docker rm $(docker ps -a -q)` : `FOR /F %A IN ('docker ps -q') DO docker rm -f %~A`;
+			
+			try {
 		
-		try {
-	
-			const result = await exec(
-				command
-			);
-	
-		} catch(error) {}
+				const result = await exec(
+					command
+				);
+		
+			} catch(error) {
 
-		this.containersLaunched = false;
+				this.options.logger.error(error);
 
+			}
+
+			this.containersLaunched = false;
+		}
+		
 	}
 	
 
@@ -500,6 +507,8 @@ export class Janus {
 		}
 
 		this.connections = {};
+
+		this.options.logger.json(options);
 		
 		this.wss = new WebSocket.Server(options);
 		
@@ -635,7 +644,7 @@ export class Janus {
 		try {
 
 			if (!this.connections[user_id]) {
-				throw new Error(`connection ${user_id} already termianted`);
+				throw new Error(`connection ${user_id} already terminated`);
 			}
 
 			const { ws } = this.connections[user_id];
