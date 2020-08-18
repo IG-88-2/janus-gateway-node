@@ -3,7 +3,11 @@ import commonjs from 'rollup-plugin-commonjs';
 import sourceMaps from 'rollup-plugin-sourcemaps';
 import typescript from 'rollup-plugin-typescript2';
 import copy from 'rollup-plugin-copy';
-const pkg = require('./package.json');
+const pkg = {
+  "main": "dist/index.cjs.js",
+  "module": "dist/index.esm.js",
+  "browser": "dist/index.js"
+};
 
 export default {
   input: `janus-gateway-node.ts`,

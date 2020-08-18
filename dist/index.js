@@ -1326,6 +1326,9 @@
     class Janus {
         constructor(options) {
             this.generateInstances = async () => {
+                if (this.options.generateInstances) {
+                    return await this.options.generateInstances();
+                }
                 const instances = [];
                 const start_ws_port = 8188;
                 const start_admin_ws_port = 7188;
@@ -2131,7 +2134,7 @@
             this.stats = {};
             this.keepAliveTimeout = 30000;
             this.syncInterval = 30000;
-            this.instancesAmount = options.instancesAmount;
+            this.instancesAmount = options.instancesAmount || 2;
             this.containersLaunched = false;
             this.dockerJanusImage = 'herbert1947/janus-gateway-videoroom';
             this.defaultWebSocketOptions = {

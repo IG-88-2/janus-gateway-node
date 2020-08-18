@@ -48,18 +48,17 @@ interface JanusOptions {
 	generateId: () => string,
 	retrieveContext: () => any,
 	updateContext: (context:any) => any,
-	selectInstance: (instances:JanusInstance[]) => JanusInstance,
-	generateInstances: () => Promise<JanusInstanceOptions[]>,
+	selectInstance?: (instances:JanusInstance[]) => JanusInstance,
+	generateInstances?: () => Promise<JanusInstanceOptions[]>,
 	onError: (error:any) => void,
 	keepAliveTimeout:number,
 	syncInterval:number,
-	instancesAmount:number,
-	dockerJanusImage:string,
 	logger: {
 		info : (message:string) => void,
 		error : (error:any) => void,
 		json : (json:any) => void
 	},
+	instancesAmount?:number,
 	webSocketOptions?: any
 }
 
@@ -112,7 +111,7 @@ export class Janus {
 
 		this.syncInterval = 30000;
 
-		this.instancesAmount = options.instancesAmount;
+		this.instancesAmount = options.instancesAmount || 2;
 
 		this.containersLaunched = false;
 

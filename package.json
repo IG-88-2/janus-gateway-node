@@ -1,16 +1,16 @@
 {
   "name": "janus-gateway-node",
-  "version": "0.0.67",
+  "version": "0.0.70",
   "description": "Janus Gateway Node",
   "author": "Anatoly Strashkevich",
   "homepage": "https://github.com/IG-88-2/janus-gateway-node",
   "copyright": "",
   "private": false,
   "repository": "https://github.com/IG-88-2/janus-gateway-node",
-  "main": "dist/index.cjs.js",
-  "module": "dist/index.esm.js",
-  "browser": "dist/index.js",
-  "types": "dist/janus-gateway-node.d.ts",
+  "main": "./index.cjs.js",
+  "module": "./index.esm.js",
+  "browser": "./index.js",
+  "types": "./janus-gateway-node.d.ts",
   "scripts": {
     "build": "rollup --config rollup.config.ts"
   },
