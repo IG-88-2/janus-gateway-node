@@ -7,7 +7,7 @@
     "emitDecoratorMetadata": true,
     "resolveJsonModule": true,  
     "outDir": "dist",        
-    "declarationDir": "dist",     
+    "declarationDir": "dist",
     "target": "ES2017",                       
     "module": "esnext",
     "declaration": true,
