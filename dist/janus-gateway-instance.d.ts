@@ -118,6 +118,7 @@ export declare class JanusInstance {
         videocodec?: string;
         feed?: number;
     }) => any;
+    kick: (room: any, user_id: any, handle_id: any) => any;
     publish: (data: {
         jsep: any;
         room: string;

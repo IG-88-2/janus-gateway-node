@@ -49,6 +49,7 @@ interface JanusOptions {
 	retrieveContext: () => any,
 	updateContext: (context:any) => any,
 	selectInstance: (instances:JanusInstance[]) => JanusInstance,
+	generateInstances: () => Promise<JanusInstanceOptions[]>,
 	onError: (error:any) => void,
 	keepAliveTimeout:number,
 	syncInterval:number,
@@ -134,6 +135,10 @@ export class Janus {
 
 
 	generateInstances = async () : Promise<JanusInstanceOptions[]> => {
+
+		if (this.options.generateInstances) {
+			return await this.options.generateInstances();
+		}
 
 		const instances = [];
 	
@@ -999,25 +1004,104 @@ export class Janus {
 
 		const instance = this.instances[room.instance_id];
 
-		const result = await instance.join({
-			user_id,
-			room: room.room_id,
-			ptype,
-			feed,
-			handle_id,
-			pin: room.pin,
-			secret: room.secret,
-			display
-		}); 
-		
-		const response = {
-			type: 'join',
-			load: result
-		};
-		
-		return response;
+		try {
+
+			const result = await instance.join({
+				user_id,
+				room: room.room_id,
+				ptype,
+				feed,
+				handle_id,
+				pin: room.pin,
+				secret: room.secret,
+				display
+			}); 
+			
+			const response = {
+				type: 'join',
+				load: result
+			};
+			
+			return response;
+
+		} catch(error) {
+
+			if (error.code===436) {
+				await this.onKick(room_id, user_id, handle_id);
+				return this.joinRoom(user_id, message);
+			} else {
+				throw new Error(error);
+			}
+			
+		}
 
 	}
+	
+
+
+	private onKick = (room_id, user_id, handle_id) => {
+		
+		const room = this.rooms[room_id];
+
+		const instance = this.instances[room.instance_id];
+		
+		return instance.kick(room, user_id, handle_id);
+
+	}
+
+
+
+	public onJoinAndConfigure = async (user_id, message) : Promise<Response> => {
+
+		const {
+			jsep,
+			room_id,
+			handle_id,
+			ptype,
+			feed
+		} = message.load;
+
+		const room = this.rooms[room_id];
+
+		const instance = this.instances[room.instance_id];
+		
+		try {
+
+			const result : any = await instance.joinandconfigure({
+				jsep, 
+				room: room.room_id, 
+				handle_id, 
+				user_id,
+				pin: room.pin, 
+				secret: room.secret,
+				ptype,
+				feed
+			});
+			
+			const data = {
+				jsep: result.jsep,
+				data: result.plugindata.data
+			};
+
+			const response = {
+				type: 'joinandconfigure',
+				load: data
+			};
+			
+			return response;
+
+		} catch(error) {
+
+			if (error.code===436) {
+				await this.onKick(room_id, user_id, handle_id);
+				return this.onJoinAndConfigure(user_id, message);
+			} else {
+				throw new Error(error);
+			}
+
+		}
+
+	} 
 
 
 
@@ -1068,47 +1152,6 @@ export class Janus {
 
 		return response;
 			
-	} 
-
-
-
-	public onJoinAndConfigure = async (user_id, message) : Promise<Response> => {
-
-		const {
-			jsep,
-			room_id,
-			handle_id,
-			ptype,
-			feed
-		} = message.load;
-
-		const room = this.rooms[room_id];
-
-		const instance = this.instances[room.instance_id];
-		
-		const result : any = await instance.joinandconfigure({
-			jsep, 
-			room: room.room_id, 
-			handle_id, 
-			user_id,
-			pin: room.pin, 
-			secret: room.secret,
-			ptype,
-			feed
-		});
-		
-		const data = {
-			jsep: result.jsep,
-			data: result.plugindata.data
-		};
-
-		const response = {
-			type: 'joinandconfigure',
-			load: data
-		};
-		
-		return response;
-
 	} 
 
 

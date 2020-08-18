@@ -531,6 +531,7 @@ export class JanusInstance {
 			if (response.janus===`error`) {
 				error += `${response.error.code} \n ${response.error.reason} \n`;
 				const e = new Error(error);
+				e['code'] = response.error.code;
 				return e;
 			} else if(
 				response.plugindata && 
@@ -539,6 +540,7 @@ export class JanusInstance {
 			) {
 				error += `${response.plugindata.data.error_code} \n ${response.plugindata.data.error} \n`;
 				const e = new Error(error);
+				e['code'] = response.plugindata.data.error_code;
 				return e;
 			} else if(response.janus===`timeout`) {
 				error += `timeout`;
@@ -1040,6 +1042,24 @@ export class JanusInstance {
 		}
 
 		return this.transaction(request);
+
+	}
+
+
+
+	public kick = (room, user_id, handle_id) => {
+
+		const request : any = {
+			janus: "message",
+			//handle_id,
+			body: {
+				request : "kick",
+				room,
+				id : user_id
+			}
+		};
+
+		return this.adminTransaction(request);
 
 	}
 

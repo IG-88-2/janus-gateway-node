@@ -1,2 +1,6 @@
 node_modules
 dist
+dist/index.js
+dist/janus-gateway-instance.d.ts
+dist/janus-gateway-node.d.ts
+dist/*

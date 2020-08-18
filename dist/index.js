@@ -862,6 +862,7 @@
                     if (response.janus === `error`) {
                         error += `${response.error.code} \n ${response.error.reason} \n`;
                         const e = new Error(error);
+                        e['code'] = response.error.code;
                         return e;
                     }
                     else if (response.plugindata &&
@@ -869,6 +870,7 @@
                         response.plugindata.data.error) {
                         error += `${response.plugindata.data.error_code} \n ${response.plugindata.data.error} \n`;
                         const e = new Error(error);
+                        e['code'] = response.plugindata.data.error_code;
                         return e;
                     }
                     else if (response.janus === `timeout`) {
@@ -1144,6 +1146,17 @@
                     request.body.videocodec = videocodec;
                 }
                 return this.transaction(request);
+            };
+            this.kick = (room, user_id, handle_id) => {
+                const request = {
+                    janus: "message",
+                    body: {
+                        request: "kick",
+                        room,
+                        id: user_id
+                    }
+                };
+                return this.adminTransaction(request);
             };
             this.publish = (data) => {
                 const { jsep, room, handle_id, pin, secret, audiocodec, videocodec } = data;
@@ -1469,12 +1482,16 @@
                 this.containersLaunched = true;
             };
             this.terminateContainers = async () => {
-                const command = process.platform === 'linux' ? `docker rm $(docker ps -a -q)` : `FOR /F %A IN ('docker ps -q') DO docker rm -f %~A`;
-                try {
-                    const result = await child_process.exec(command);
+                if (this.containersLaunched) {
+                    const command = process.platform === 'linux' ? `docker rm $(docker ps -a -q)` : `FOR /F %A IN ('docker ps -q') DO docker rm -f %~A`;
+                    try {
+                        const result = await child_process.exec(command);
+                    }
+                    catch (error) {
+                        this.options.logger.error(error);
+                    }
+                    this.containersLaunched = false;
                 }
-                catch (error) { }
-                this.containersLaunched = false;
             };
             this.synchronize = async (instance_id) => {
                 const instances = Object.values(this.instances);
@@ -1535,6 +1552,7 @@
                     }
                 }
                 this.connections = {};
+                this.options.logger.json(options);
                 this.wss = new WebSocket$2.Server(options);
                 this.wss.on('connection', this.onConnection);
                 this.wss.on('listening', () => {
@@ -1612,7 +1630,7 @@
             this.notify = (user_id) => (response) => {
                 try {
                     if (!this.connections[user_id]) {
-                        throw new Error(`connection ${user_id} already termianted`);
+                        throw new Error(`connection ${user_id} already terminated`);
                     }
                     const { ws } = this.connections[user_id];
                     const message = JSON.stringify(response);
@@ -1856,21 +1874,72 @@
                 this.options.logger.info(`user ${ptype} ${user_id} with handle ${handle_id} is joining room ${room_id} which already contains participants...`);
                 this.options.logger.json(room.participants);
                 const instance = this.instances[room.instance_id];
-                const result = await instance.join({
-                    user_id,
-                    room: room.room_id,
-                    ptype,
-                    feed,
-                    handle_id,
-                    pin: room.pin,
-                    secret: room.secret,
-                    display
-                });
-                const response = {
-                    type: 'join',
-                    load: result
-                };
-                return response;
+                try {
+                    const result = await instance.join({
+                        user_id,
+                        room: room.room_id,
+                        ptype,
+                        feed,
+                        handle_id,
+                        pin: room.pin,
+                        secret: room.secret,
+                        display
+                    });
+                    const response = {
+                        type: 'join',
+                        load: result
+                    };
+                    return response;
+                }
+                catch (error) {
+                    if (error.code === 436) {
+                        await this.onKick(room_id, user_id, handle_id);
+                        return this.joinRoom(user_id, message);
+                    }
+                    else {
+                        throw new Error(error);
+                    }
+                }
+            };
+            this.onKick = (room_id, user_id, handle_id) => {
+                const room = this.rooms[room_id];
+                const instance = this.instances[room.instance_id];
+                return instance.kick(room, user_id, handle_id);
+            };
+            this.onJoinAndConfigure = async (user_id, message) => {
+                const { jsep, room_id, handle_id, ptype, feed } = message.load;
+                const room = this.rooms[room_id];
+                const instance = this.instances[room.instance_id];
+                try {
+                    const result = await instance.joinandconfigure({
+                        jsep,
+                        room: room.room_id,
+                        handle_id,
+                        user_id,
+                        pin: room.pin,
+                        secret: room.secret,
+                        ptype,
+                        feed
+                    });
+                    const data = {
+                        jsep: result.jsep,
+                        data: result.plugindata.data
+                    };
+                    const response = {
+                        type: 'joinandconfigure',
+                        load: data
+                    };
+                    return response;
+                }
+                catch (error) {
+                    if (error.code === 436) {
+                        await this.onKick(room_id, user_id, handle_id);
+                        return this.onJoinAndConfigure(user_id, message);
+                    }
+                    else {
+                        throw new Error(error);
+                    }
+                }
             };
             this.onConfigure = async (message) => {
                 const { jsep, room_id, handle_id, video, audio, ptype } = message.load;
@@ -1899,30 +1968,6 @@
                         jsep: result.jsep,
                         data: result.plugindata.data
                     }
-                };
-                return response;
-            };
-            this.onJoinAndConfigure = async (user_id, message) => {
-                const { jsep, room_id, handle_id, ptype, feed } = message.load;
-                const room = this.rooms[room_id];
-                const instance = this.instances[room.instance_id];
-                const result = await instance.joinandconfigure({
-                    jsep,
-                    room: room.room_id,
-                    handle_id,
-                    user_id,
-                    pin: room.pin,
-                    secret: room.secret,
-                    ptype,
-                    feed
-                });
-                const data = {
-                    jsep: result.jsep,
-                    data: result.plugindata.data
-                };
-                const response = {
-                    type: 'joinandconfigure',
-                    load: data
                 };
                 return response;
             };
