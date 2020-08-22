@@ -23,7 +23,7 @@ interface JanusRoom {
 
 
 
-interface RoomContext {
+interface RoomContext extends JanusRoom {
 	room_id: string,
 	instance_id: string,
 	secret: string,
@@ -46,8 +46,8 @@ interface JanusInstanceOptions {
 
 interface JanusOptions {
 	generateId: () => string,
-	retrieveContext: () => any,
-	updateContext: (context:any) => any,
+	retrieveContext: () => Promise<any>,
+	updateContext: (context:any) => Promise<any>,
 	selectInstance?: (instances:JanusInstance[]) => JanusInstance,
 	generateInstances?: () => Promise<JanusInstanceOptions[]>,
 	onError: (error:any) => void,
@@ -90,6 +90,7 @@ export class Janus {
 	containersLaunched:boolean
 	notifyConnected:() => void
 	defaultWebSocketOptions:any
+	shouldDetach:boolean
 	context:any
 	wss:any
 	
@@ -109,11 +110,13 @@ export class Janus {
 
 		this.keepAliveTimeout = 30000;
 
-		this.syncInterval = 30000;
+		this.syncInterval = 10000;
 
 		this.instancesAmount = options.instancesAmount || 2;
 
 		this.containersLaunched = false;
+
+		this.shouldDetach = true;
 
 		this.dockerJanusImage = 'herbert1947/janus-gateway-videoroom';
 		
@@ -127,8 +130,8 @@ export class Janus {
 			maxPayload: 10000
 		};
 
-		this.context = this.options.retrieveContext();
-
+		this.context = {};
+		
 	}
 
 
@@ -190,6 +193,8 @@ export class Janus {
 	
 	
 	public initialize = async () : Promise<void> => {
+
+		this.context = await this.options.retrieveContext();
 		
 		this.instances = {};
 		
@@ -281,6 +286,8 @@ export class Janus {
 
 
 	public terminate = async () => {
+
+		this.options.logger.info(`terminate...`);
 
 		this.context = await this.options.updateContext(this.rooms);
 
@@ -459,14 +466,15 @@ export class Janus {
 			
 			for(let j = 0; j < rooms.length; j++) {
 				const { room } = rooms[j];
-				const { participants } = await instance.listParticipants(room);
+				const participants = await instance.listParticipants(room);
 				const instance_id = instance.id;
 				const context : RoomContext = {
 					room_id: room,
 					instance_id,
 					pin: undefined,
 					secret: undefined,
-					participants
+					participants,
+					...rooms[j]
 				};
 				
 				const target = this.context[room];
@@ -484,8 +492,7 @@ export class Janus {
 			}
 		}
 		
-		//TODO should i update context here ???
-		//this.context = await this.options.updateContext(this.rooms);
+		this.context = await this.options.updateContext(this.rooms);
 		
 	}
 
@@ -559,8 +566,10 @@ export class Janus {
 
 
 
-	private onTimeout = (user_id:string) => {
+	private onTimeout = (user_id:string, detach:boolean) => {
 		
+		this.options.logger.info(`timeout called for user ${user_id}`);
+
 		const { ws } = this.connections[user_id];
 
 		ws.removeListener('message', this.onMessage);
@@ -569,44 +578,46 @@ export class Janus {
 
 		delete this.connections[user_id];
 
-		this.detachUserHandles(user_id);
+		if (detach) {
+			this.detachUserHandles(user_id);
+		}
 
 	}
 
 
 
-	private onConnection = (ws, req) => {
+	private onConnection = async (ws, req) => {
 
 		let user_id = this.getUserId(req);
 		
 		if (!user_id) {
-			
 			ws.close();
-
 			return;
-
 		}
 		
 		if (this.connections[user_id]) {
-
 			this.connections[user_id].ws.removeListener('message', this.onMessage);
 
 			//TODO review ???
 			//this.connections[user_id].ws.close();
-
 			clearTimeout(this.connections[user_id].t);
 
+			if (this.shouldDetach) {
+				await this.detachUserHandles(user_id);
+			}
 		}
 		
 		const t = setTimeout(() => {
 			
-			this.onTimeout(user_id);
+			this.onTimeout(user_id, this.shouldDetach);
 
 		}, this.keepAliveTimeout);
 
 		this.connections[user_id] = { ws, t };
 
 		ws.on('message', this.onMessage(user_id));
+
+		ws.send('connected');
 		
 	}
 
@@ -676,6 +687,11 @@ export class Janus {
 			for(const handle_id in instance.handles) {
 				if (instance.handles[handle_id]===user_id) {
 					try {
+						await instance.leave(handle_id);
+					} catch(error) {
+						this.onError(error);
+					}
+					try {
 						await instance.detach(handle_id);
 					} catch(error) {
 						this.onError(error);
@@ -701,7 +717,7 @@ export class Janus {
 
 		const t = setTimeout(() => {
 
-			this.onTimeout(user_id);
+			this.onTimeout(user_id, this.shouldDetach);
 			
 		}, this.keepAliveTimeout);
 
@@ -815,19 +831,18 @@ export class Janus {
 				response = await this.getIceHandle(user_id, message.load.room_id);
 				break;
 			case 'rooms':
-				const rooms = Object.values(this.rooms);
 				await this.synchronize();
+				const rooms = Object.values(this.rooms);
 				response = {
 					type: 'rooms',
-					load: rooms.map(({
-						room_id,
-						instance_id,
-						participants
-					}) => ({
-						room_id,
-						instance_id,
-						participants
-					}))
+					load: rooms.map((data) => {
+						const room = {
+							...data
+						};
+						room.pin = undefined;
+						room.secret = undefined;
+						return data;
+					})
 				};
 				break;
 			case 'join':
@@ -911,14 +926,17 @@ export class Janus {
 			room: room_id
 		});
 
-		const { room } = result.plugindata.data;
+		const data = result.plugindata.data;
+
+		const { room } = data;
 
 		const context : RoomContext = {
 			room_id: room,
 			instance_id: instance.id,
 			pin,
 			secret,
-			participants : []
+			participants : [],
+			...data
 		};
 		
 		this.rooms[room] = context;
@@ -972,6 +990,14 @@ export class Janus {
 
 		const instance = this.instances[room.instance_id];
 
+		//TODO
+		/*
+		optimize
+		list all user handles
+		check if active publisher handle already exist for this user
+		return existing handle
+		*/
+
 		const handleId = await instance.attach(user_id);
 		
 		const response = {
@@ -1002,37 +1028,24 @@ export class Janus {
 		this.options.logger.json(room.participants);
 
 		const instance = this.instances[room.instance_id];
-
-		try {
-
-			const result = await instance.join({
-				user_id,
-				room: room.room_id,
-				ptype,
-				feed,
-				handle_id,
-				pin: room.pin,
-				secret: room.secret,
-				display
-			}); 
-			
-			const response = {
-				type: 'join',
-				load: result
-			};
-			
-			return response;
-
-		} catch(error) {
-
-			if (error.code===436) {
-				await this.onKick(room_id, user_id, handle_id);
-				return this.joinRoom(user_id, message);
-			} else {
-				throw new Error(error);
-			}
-			
-		}
+		
+		const result = await instance.join({
+			user_id,
+			room: room.room_id,
+			ptype,
+			feed,
+			handle_id,
+			pin: room.pin,
+			secret: room.secret,
+			display
+		}); 
+		
+		const response = {
+			type: 'join',
+			load: result
+		};
+		
+		return response;
 
 	}
 	
@@ -1064,41 +1077,28 @@ export class Janus {
 
 		const instance = this.instances[room.instance_id];
 		
-		try {
+		const result : any = await instance.joinandconfigure({
+			jsep, 
+			room: room.room_id, 
+			handle_id, 
+			user_id,
+			pin: room.pin, 
+			secret: room.secret,
+			ptype,
+			feed
+		});
+		
+		const data = {
+			jsep: result.jsep,
+			data: result.plugindata.data
+		};
 
-			const result : any = await instance.joinandconfigure({
-				jsep, 
-				room: room.room_id, 
-				handle_id, 
-				user_id,
-				pin: room.pin, 
-				secret: room.secret,
-				ptype,
-				feed
-			});
-			
-			const data = {
-				jsep: result.jsep,
-				data: result.plugindata.data
-			};
-
-			const response = {
-				type: 'joinandconfigure',
-				load: data
-			};
-			
-			return response;
-
-		} catch(error) {
-
-			if (error.code===436) {
-				await this.onKick(room_id, user_id, handle_id);
-				return this.onJoinAndConfigure(user_id, message);
-			} else {
-				throw new Error(error);
-			}
-
-		}
+		const response = {
+			type: 'joinandconfigure',
+			load: data
+		};
+		
+		return response;
 
 	} 
 

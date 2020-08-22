@@ -1,6 +1,6 @@
 {
   "name": "janus-gateway-node",
-  "version": "0.0.70",
+  "version": "0.0.71",
   "description": "Janus Gateway Node",
   "author": "Anatoly Strashkevich",
   "homepage": "https://github.com/IG-88-2/janus-gateway-node",
@@ -17,7 +17,7 @@
   "devDependencies": {
     "@babel/polyfill": "^7.10.4",
     "@rollup/plugin-typescript": "^5.0.2",
-    "@types/node": "^8.5.2",
+    "@types/node": "^14.6.0",
     "babel-core": "^6.26.0",
     "babel-loader": "^7.1.4",
     "babel-preset-env": "^1.6.1",

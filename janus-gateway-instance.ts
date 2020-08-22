@@ -434,7 +434,15 @@ export class JanusInstance {
 		const id = this.generateId();
 
 		request.transaction = id;
-		
+
+		//TODO remove ???
+		/*
+		if i want to kick user for current session this should be session i created earlier or i should use some specific admin session ?
+		*/
+		if (this.sessionId) {
+			request.session_id = this.sessionId;
+		}
+
 		request.admin_secret = this.adminSecret;
 
 		let r = null;
@@ -677,7 +685,7 @@ export class JanusInstance {
 
 			this.stats = stats;
 
-			this.logger.json(stats);
+			//this.logger.json(stats);
 
 		};
 
@@ -726,20 +734,32 @@ export class JanusInstance {
 		const {
 			secret,
 			pin,
-			room
+			room,
+			description,
+			
+			bitrate,
+			bitrate_cap,
+			fir_freq,
+			videocodec,
+			vp9_profile
 		}  = data;
 
 		const request : any = {
 			janus: "message",
 			handle_id: this.localHandleId,
-			description: data.description,
 			body: {
 				request: "create",
+				description,
 				room,
 				permanent: false,
 				is_private: false,
 				admin_key: this.adminKey,
-				publishers: 6
+				publishers: 6,
+				bitrate,
+				bitrate_cap,
+				fir_freq,
+				videocodec,
+				vp9_profile
 			}
 		};
 
@@ -851,6 +871,20 @@ export class JanusInstance {
 
 			return result.plugindata.data;
 
+		})
+		.then(({ participants }) => {
+
+			return participants.map((p) => {
+				let handles = [];
+				for(let handleId in this.handles) {
+					if (this.handles[handleId]===p.id) {
+						handles.push(handleId);
+					}
+				}
+				p.handles = handles;
+				return p;
+			});
+			
 		});
 
 	}
@@ -887,13 +921,31 @@ export class JanusInstance {
 
 
 
-	public attach = (user_id?:string) : number => {
-
+	public attach = async (user_id?:string) : Promise<number> => {
+		//TODO
+		/*
+		if (user_id) {
+			this.logger.info(`attaching ${user_id}`);
+			for(const handleId in this.handles) {
+				const userId = this.handles[handleId];
+				if (userId==user_id) {
+					this.logger.info(`user ${user_id} handle already exist ${handleId}`);
+					try {
+						const handleInfo = await this.handleInfo(handleId);
+						this.logger.info(handleInfo);
+					} catch(error) {
+						this.onError(error, 'attach');
+					}
+				}
+			}
+		}
+		*/
+		
 		const opaqueId = this.generateId();
 
 		return this.transaction({
 			janus: "attach",
-			plugin: "janus.plugin.videoroom", 
+			plugin: "janus.plugin.videoroom",
 			opaque_id: opaqueId
 		})
 		.then((response) => {
@@ -1051,7 +1103,7 @@ export class JanusInstance {
 
 		const request : any = {
 			janus: "message",
-			//handle_id,
+			//handle_id: Number(handle_id), //admin handle id ? or what ?
 			body: {
 				request : "kick",
 				room,
@@ -1088,7 +1140,7 @@ export class JanusInstance {
 		const request : any = {
 			janus: "message", 
 			jsep,
-			handle_id,
+			handle_id: Number(handle_id),
 			body: {
 				request: "publish",
 				room,
@@ -1135,7 +1187,7 @@ export class JanusInstance {
 
 		const request : any = {
 			janus: "message", 
-			handle_id,
+			handle_id: Number(handle_id),
 			jsep: answer,
 			body: {
 				request: "start",
@@ -1179,7 +1231,7 @@ export class JanusInstance {
 
 		const request : any = {
 			janus: "message",
-			handle_id,
+			handle_id: Number(handle_id),
 			body: { 
 				request: "configure",
 				pin,
@@ -1231,7 +1283,7 @@ export class JanusInstance {
 
 		const request : any = {
 			janus: "message", 
-			handle_id: handle_id,
+			handle_id: Number(handle_id),
 			body: {
 				request: "unpublish",
 				pin,
@@ -1272,11 +1324,11 @@ export class JanusInstance {
 
 
 
-	leave = (handle_id:number) => {
+	leave = (handle_id) => {
 		
 		const request = {
 			janus: "message", 
-			handle_id,
+			handle_id: Number(handle_id),
 			body: {
 				request: "leave"
 			}
@@ -1292,7 +1344,7 @@ export class JanusInstance {
 		
 		const request = {
 			janus: "trickle",
-			handle_id,
+			handle_id: Number(handle_id),
 			candidate
 		};
 
