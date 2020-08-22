@@ -1,6 +1,20 @@
 /// <reference types="node" />
 import { JanusInstance } from "./janus-gateway-instance";
-interface RoomContext {
+interface JanusRoom {
+    room: string;
+    description: string;
+    pin_required: boolean;
+    max_publishers: number;
+    bitrate: number;
+    fir_freq: number;
+    require_pvtid: boolean;
+    notify_joining: boolean;
+    audiocodec: string;
+    videocodec: string;
+    record: boolean;
+    num_participants: number;
+}
+interface RoomContext extends JanusRoom {
     room_id: string;
     instance_id: string;
     secret: string;
@@ -17,8 +31,8 @@ interface JanusInstanceOptions {
 }
 interface JanusOptions {
     generateId: () => string;
-    retrieveContext: () => any;
-    updateContext: (context: any) => any;
+    retrieveContext: () => Promise<any>;
+    updateContext: (context: any) => Promise<any>;
     selectInstance?: (instances: JanusInstance[]) => JanusInstance;
     generateInstances?: () => Promise<JanusInstanceOptions[]>;
     onError: (error: any) => void;
@@ -65,6 +79,7 @@ export declare class Janus {
     containersLaunched: boolean;
     notifyConnected: () => void;
     defaultWebSocketOptions: any;
+    shouldDetach: boolean;
     context: any;
     wss: any;
     constructor(options: JanusOptions);

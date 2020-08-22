@@ -93,7 +93,7 @@ export declare class JanusInstance {
         secret: string;
         handle_id: number;
     }) => any;
-    attach: (user_id?: string) => number;
+    attach: (user_id?: string) => Promise<number>;
     join: (data: {
         user_id: string;
         room: string;
@@ -154,7 +154,7 @@ export declare class JanusInstance {
     }) => any;
     hangup: (handle_id: any) => any;
     detach: (handle_id: any) => any;
-    leave: (handle_id: number) => any;
+    leave: (handle_id: any) => any;
     trickle: (candidate: any, handle_id: number) => any;
     pause: ({}: {}) => any;
 }

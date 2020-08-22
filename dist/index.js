@@ -795,6 +795,9 @@
                 const timeout = this.transactionTimeout;
                 const id = this.generateId();
                 request.transaction = id;
+                if (this.sessionId) {
+                    request.session_id = this.sessionId;
+                }
                 request.admin_secret = this.adminSecret;
                 let r = null;
                 let p = null;
@@ -952,7 +955,6 @@
                         this.onError(error, 'usageMonitor');
                     }
                     this.stats = stats;
-                    this.logger.json(stats);
                 };
                 exec(command, onResult);
             };
@@ -969,18 +971,23 @@
                 return this.adminTransaction(request);
             };
             this.createRoom = (data) => {
-                const { secret, pin, room } = data;
+                const { secret, pin, room, description, bitrate, bitrate_cap, fir_freq, videocodec, vp9_profile } = data;
                 const request = {
                     janus: "message",
                     handle_id: this.localHandleId,
-                    description: data.description,
                     body: {
                         request: "create",
+                        description,
                         room,
                         permanent: false,
                         is_private: false,
                         admin_key: this.adminKey,
-                        publishers: 6
+                        publishers: 6,
+                        bitrate,
+                        bitrate_cap,
+                        fir_freq,
+                        videocodec,
+                        vp9_profile
                     }
                 };
                 if (secret) {
@@ -1047,6 +1054,18 @@
                 return this.transaction(request)
                     .then((result) => {
                     return result.plugindata.data;
+                })
+                    .then(({ participants }) => {
+                    return participants.map((p) => {
+                        let handles = [];
+                        for (let handleId in this.handles) {
+                            if (this.handles[handleId] === p.id) {
+                                handles.push(handleId);
+                            }
+                        }
+                        p.handles = handles;
+                        return p;
+                    });
                 });
             };
             this.destroyRoom = (data) => {
@@ -1064,7 +1083,7 @@
                 };
                 return this.transaction(request);
             };
-            this.attach = (user_id) => {
+            this.attach = async (user_id) => {
                 const opaqueId = this.generateId();
                 return this.transaction({
                     janus: "attach",
@@ -1163,7 +1182,7 @@
                 const request = {
                     janus: "message",
                     jsep,
-                    handle_id,
+                    handle_id: Number(handle_id),
                     body: {
                         request: "publish",
                         room,
@@ -1189,7 +1208,7 @@
                 const { answer, room, pin, secret, handle_id } = data;
                 const request = {
                     janus: "message",
-                    handle_id,
+                    handle_id: Number(handle_id),
                     jsep: answer,
                     body: {
                         request: "start",
@@ -1204,7 +1223,7 @@
                 const { jsep, room, handle_id, pin, secret, audiocodec, videocodec, ptype, audio, video } = data;
                 const request = {
                     janus: "message",
-                    handle_id,
+                    handle_id: Number(handle_id),
                     body: {
                         request: "configure",
                         pin,
@@ -1236,7 +1255,7 @@
                 const { handle_id, pin, secret } = data;
                 const request = {
                     janus: "message",
-                    handle_id: handle_id,
+                    handle_id: Number(handle_id),
                     body: {
                         request: "unpublish",
                         pin,
@@ -1263,7 +1282,7 @@
             this.leave = (handle_id) => {
                 const request = {
                     janus: "message",
-                    handle_id,
+                    handle_id: Number(handle_id),
                     body: {
                         request: "leave"
                     }
@@ -1273,7 +1292,7 @@
             this.trickle = (candidate, handle_id) => {
                 const request = {
                     janus: "trickle",
-                    handle_id,
+                    handle_id: Number(handle_id),
                     candidate
                 };
                 return this.transaction(request);
@@ -1360,6 +1379,7 @@
                 });
             };
             this.initialize = async () => {
+                this.context = await this.options.retrieveContext();
                 this.instances = {};
                 const list = await this.generateInstances();
                 this.options.logger.info(`instances generated`);
@@ -1416,6 +1436,7 @@
                 await this.transport();
             };
             this.terminate = async () => {
+                this.options.logger.info(`terminate...`);
                 this.context = await this.options.updateContext(this.rooms);
                 const instances = Object.values(this.instances);
                 if (this.sync) {
@@ -1519,15 +1540,9 @@
                     }
                     for (let j = 0; j < rooms.length; j++) {
                         const { room } = rooms[j];
-                        const { participants } = await instance.listParticipants(room);
+                        const participants = await instance.listParticipants(room);
                         const instance_id = instance.id;
-                        const context = {
-                            room_id: room,
-                            instance_id,
-                            pin: undefined,
-                            secret: undefined,
-                            participants
-                        };
+                        const context = Object.assign({ room_id: room, instance_id, pin: undefined, secret: undefined, participants }, rooms[j]);
                         const target = this.context[room];
                         if (target) {
                             if (target.pin) {
@@ -1540,6 +1555,7 @@
                         this.rooms[room] = context;
                     }
                 }
+                this.context = await this.options.updateContext(this.rooms);
             };
             this.transport = () => {
                 this.options.logger.info(`launching transport...`);
@@ -1579,14 +1595,17 @@
                     this.options.onError(error);
                 }
             };
-            this.onTimeout = (user_id) => {
+            this.onTimeout = (user_id, detach) => {
+                this.options.logger.info(`timeout called for user ${user_id}`);
                 const { ws } = this.connections[user_id];
                 ws.removeListener('message', this.onMessage);
                 ws.close();
                 delete this.connections[user_id];
-                this.detachUserHandles(user_id);
+                if (detach) {
+                    this.detachUserHandles(user_id);
+                }
             };
-            this.onConnection = (ws, req) => {
+            this.onConnection = async (ws, req) => {
                 let user_id = this.getUserId(req);
                 if (!user_id) {
                     ws.close();
@@ -1595,12 +1614,16 @@
                 if (this.connections[user_id]) {
                     this.connections[user_id].ws.removeListener('message', this.onMessage);
                     clearTimeout(this.connections[user_id].t);
+                    if (this.shouldDetach) {
+                        await this.detachUserHandles(user_id);
+                    }
                 }
                 const t = setTimeout(() => {
-                    this.onTimeout(user_id);
+                    this.onTimeout(user_id, this.shouldDetach);
                 }, this.keepAliveTimeout);
                 this.connections[user_id] = { ws, t };
                 ws.on('message', this.onMessage(user_id));
+                ws.send('connected');
             };
             this.onMessage = (user_id) => async (data) => {
                 let message = null;
@@ -1650,6 +1673,12 @@
                     for (const handle_id in instance.handles) {
                         if (instance.handles[handle_id] === user_id) {
                             try {
+                                await instance.leave(handle_id);
+                            }
+                            catch (error) {
+                                this.onError(error);
+                            }
+                            try {
                                 await instance.detach(handle_id);
                             }
                             catch (error) {
@@ -1668,7 +1697,7 @@
                 }
                 clearTimeout(this.connections[user_id].t);
                 const t = setTimeout(() => {
-                    this.onTimeout(user_id);
+                    this.onTimeout(user_id, this.shouldDetach);
                 }, this.keepAliveTimeout);
                 this.connections[user_id].t = t;
                 return {
@@ -1755,15 +1784,16 @@
                         response = await this.getIceHandle(user_id, message.load.room_id);
                         break;
                     case 'rooms':
-                        const rooms = Object.values(this.rooms);
                         await this.synchronize();
+                        const rooms = Object.values(this.rooms);
                         response = {
                             type: 'rooms',
-                            load: rooms.map(({ room_id, instance_id, participants }) => ({
-                                room_id,
-                                instance_id,
-                                participants
-                            }))
+                            load: rooms.map((data) => {
+                                const room = Object.assign({}, data);
+                                room.pin = undefined;
+                                room.secret = undefined;
+                                return data;
+                            })
                         };
                         break;
                     case 'join':
@@ -1826,14 +1856,10 @@
                     vp9_profile,
                     room: room_id
                 });
-                const { room } = result.plugindata.data;
-                const context = {
-                    room_id: room,
-                    instance_id: instance.id,
-                    pin,
-                    secret,
-                    participants: []
-                };
+                const data = result.plugindata.data;
+                const { room } = data;
+                const context = Object.assign({ room_id: room, instance_id: instance.id, pin,
+                    secret, participants: [] }, data);
                 this.rooms[room] = context;
                 this.context = await this.options.updateContext(this.rooms);
                 const response = {
@@ -1877,32 +1903,21 @@
                 this.options.logger.info(`user ${ptype} ${user_id} with handle ${handle_id} is joining room ${room_id} which already contains participants...`);
                 this.options.logger.json(room.participants);
                 const instance = this.instances[room.instance_id];
-                try {
-                    const result = await instance.join({
-                        user_id,
-                        room: room.room_id,
-                        ptype,
-                        feed,
-                        handle_id,
-                        pin: room.pin,
-                        secret: room.secret,
-                        display
-                    });
-                    const response = {
-                        type: 'join',
-                        load: result
-                    };
-                    return response;
-                }
-                catch (error) {
-                    if (error.code === 436) {
-                        await this.onKick(room_id, user_id, handle_id);
-                        return this.joinRoom(user_id, message);
-                    }
-                    else {
-                        throw new Error(error);
-                    }
-                }
+                const result = await instance.join({
+                    user_id,
+                    room: room.room_id,
+                    ptype,
+                    feed,
+                    handle_id,
+                    pin: room.pin,
+                    secret: room.secret,
+                    display
+                });
+                const response = {
+                    type: 'join',
+                    load: result
+                };
+                return response;
             };
             this.onKick = (room_id, user_id, handle_id) => {
                 const room = this.rooms[room_id];
@@ -1913,36 +1928,25 @@
                 const { jsep, room_id, handle_id, ptype, feed } = message.load;
                 const room = this.rooms[room_id];
                 const instance = this.instances[room.instance_id];
-                try {
-                    const result = await instance.joinandconfigure({
-                        jsep,
-                        room: room.room_id,
-                        handle_id,
-                        user_id,
-                        pin: room.pin,
-                        secret: room.secret,
-                        ptype,
-                        feed
-                    });
-                    const data = {
-                        jsep: result.jsep,
-                        data: result.plugindata.data
-                    };
-                    const response = {
-                        type: 'joinandconfigure',
-                        load: data
-                    };
-                    return response;
-                }
-                catch (error) {
-                    if (error.code === 436) {
-                        await this.onKick(room_id, user_id, handle_id);
-                        return this.onJoinAndConfigure(user_id, message);
-                    }
-                    else {
-                        throw new Error(error);
-                    }
-                }
+                const result = await instance.joinandconfigure({
+                    jsep,
+                    room: room.room_id,
+                    handle_id,
+                    user_id,
+                    pin: room.pin,
+                    secret: room.secret,
+                    ptype,
+                    feed
+                });
+                const data = {
+                    jsep: result.jsep,
+                    data: result.plugindata.data
+                };
+                const response = {
+                    type: 'joinandconfigure',
+                    load: data
+                };
+                return response;
             };
             this.onConfigure = async (message) => {
                 const { jsep, room_id, handle_id, video, audio, ptype } = message.load;
@@ -2133,9 +2137,10 @@
             this.connections = {};
             this.stats = {};
             this.keepAliveTimeout = 30000;
-            this.syncInterval = 30000;
+            this.syncInterval = 10000;
             this.instancesAmount = options.instancesAmount || 2;
             this.containersLaunched = false;
+            this.shouldDetach = true;
             this.dockerJanusImage = 'herbert1947/janus-gateway-videoroom';
             this.defaultWebSocketOptions = {
                 port: 8080,
@@ -2144,7 +2149,7 @@
                 perMessageDeflate: false,
                 maxPayload: 10000
             };
-            this.context = this.options.retrieveContext();
+            this.context = {};
         }
     }
 
