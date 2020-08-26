@@ -37,21 +37,19 @@ export declare class JanusInstance {
         memperc: string;
         cpuperc: string;
     };
-    generateId: () => string;
     notifyConnected: (error?: any) => void;
     notifyAdminConnected: (error?: any) => void;
     onDisconnected: () => void;
     onConnected: () => void;
     onMessage: (message: any) => void;
     _onError: (error: any) => void;
-    constructor({ options, logger, onMessage, onDisconnected, onConnected, onError, generateId }: {
+    constructor({ options, logger, onMessage, onDisconnected, onConnected, onError }: {
         options: any;
         logger: any;
         onMessage: any;
         onDisconnected: any;
         onConnected: any;
         onError: any;
-        generateId: any;
     });
     private onError;
     connect: () => Promise<void>;

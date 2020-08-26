@@ -592,8 +592,9 @@
 
     const exec = require('child_process').exec;
     const WebSocket$1 = require('ws');
+    const uuidv1 = require('uuid').v1;
     class JanusInstance {
-        constructor({ options, logger, onMessage, onDisconnected, onConnected, onError, generateId }) {
+        constructor({ options, logger, onMessage, onDisconnected, onConnected, onError }) {
             this.onError = (error, location) => {
                 if (this._onError) {
                     this._onError(error);
@@ -742,7 +743,7 @@
             };
             this.transaction = (request) => {
                 const timeout = this.transactionTimeout;
-                const id = this.generateId();
+                const id = uuidv1();
                 request.transaction = id;
                 if (this.sessionId) {
                     request.session_id = this.sessionId;
@@ -793,7 +794,7 @@
             };
             this.adminTransaction = (request) => {
                 const timeout = this.transactionTimeout;
-                const id = this.generateId();
+                const id = uuidv1();
                 request.transaction = id;
                 if (this.sessionId) {
                     request.session_id = this.sessionId;
@@ -1084,7 +1085,7 @@
                 return this.transaction(request);
             };
             this.attach = async (user_id) => {
-                const opaqueId = this.generateId();
+                const opaqueId = uuidv1();
                 return this.transaction({
                     janus: "attach",
                     plugin: "janus.plugin.videoroom",
@@ -1309,7 +1310,6 @@
             this.onMessage = onMessage;
             this.onDisconnected = onDisconnected;
             this.onConnected = onConnected;
-            this.generateId = generateId;
             this._onError = onError;
             const { protocol, address, port, adminPort, adminKey, adminSecret, server_name } = options;
             this.id = server_name;
@@ -1339,6 +1339,7 @@
         }
     }
 
+    const uuidv1$1 = require('uuid').v1;
     const WebSocket$2 = require("ws");
     const url = require("url");
     const uniq = (list) => list.length === [...new Set(list)].length;
@@ -1353,15 +1354,15 @@
                 const start_admin_ws_port = 7188;
                 for (let i = 0; i < this.instancesAmount; i++) {
                     instances.push({
-                        id: this.options.generateId(),
-                        admin_key: this.options.generateId(),
+                        id: uuidv1$1(),
+                        admin_key: uuidv1$1(),
                         server_name: `instance_${i}`,
                         log_prefix: `instance_${i}:`,
                         docker_ip: `127.0.0.${1 + i}`,
                         ws_port: start_ws_port + i,
                         admin_ws_port: start_admin_ws_port + i,
                         stun_server: "stun.voip.eutelia.it",
-                        nat_1_1_mapping: "127.0.0.1",
+                        nat_1_1_mapping: `127.0.0.${1 + i}`,
                         stun_port: 3478,
                         debug_level: 5
                     });
@@ -1389,7 +1390,6 @@
                     this.options.logger.info(`ready to connect instance ${i}`);
                     this.options.logger.json(list);
                     const instance = new JanusInstance({
-                        generateId: this.options.generateId,
                         options: {
                             protocol,
                             address,
@@ -2110,15 +2110,15 @@
                 return false;
             };
             this.getPin = () => {
-                const pin = this.options.generateId();
+                const pin = uuidv1$1();
                 return pin;
             };
             this.getRoomId = () => {
-                const id = this.options.generateId();
+                const id = uuidv1$1();
                 return id;
             };
             this.getSecret = () => {
-                const secret = this.options.generateId();
+                const secret = uuidv1$1();
                 return secret;
             };
             this.getUserId = (req) => {

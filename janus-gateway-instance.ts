@@ -1,6 +1,7 @@
 
 const exec = require('child_process').exec;
 const WebSocket = require('ws');
+const uuidv1 = require('uuid').v1;
 import ReconnectingWebSocket from 'reconnecting-websocket';
 
 
@@ -36,7 +37,6 @@ export class JanusInstance {
 		memperc:string,
 		cpuperc:string
 	}
-	generateId:() => string
 	notifyConnected:(error?:any) => void
 	notifyAdminConnected:(error?:any) => void
 	onDisconnected:() => void
@@ -52,14 +52,12 @@ export class JanusInstance {
 		onMessage,
 		onDisconnected,
 		onConnected,
-		onError,
-		generateId
+		onError
 	}) {
 		
 		this.onMessage = onMessage;
 		this.onDisconnected = onDisconnected;
 		this.onConnected = onConnected;
-		this.generateId = generateId;
 		this._onError = onError;
 
 		const {
@@ -352,7 +350,7 @@ export class JanusInstance {
 		
 		const timeout = this.transactionTimeout;
 
-		const id = this.generateId();
+		const id = uuidv1();
 
 		request.transaction = id;
 		
@@ -431,7 +429,7 @@ export class JanusInstance {
 
 		const timeout = this.transactionTimeout;
 
-		const id = this.generateId();
+		const id = uuidv1();
 
 		request.transaction = id;
 
@@ -941,7 +939,7 @@ export class JanusInstance {
 		}
 		*/
 		
-		const opaqueId = this.generateId();
+		const opaqueId = uuidv1();
 
 		return this.transaction({
 			janus: "attach",

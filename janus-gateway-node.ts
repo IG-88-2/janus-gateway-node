@@ -1,5 +1,6 @@
 import { JanusInstance } from "./janus-gateway-instance";
 import { exec } from 'child_process';
+const uuidv1 = require('uuid').v1;
 const WebSocket = require("ws");
 const url = require("url");
 const uniq = (list:string[]) : boolean => list.length===[...new Set(list)].length;
@@ -150,15 +151,15 @@ export class Janus {
 	
 		for(let i = 0; i < this.instancesAmount; i++) {
 			instances.push({
-				id : this.options.generateId(),
-				admin_key : this.options.generateId(),
+				id : uuidv1(), //this.options.generateId(),
+				admin_key : uuidv1(), //this.options.generateId(),
 				server_name : `instance_${i}`,
 				log_prefix : `instance_${i}:`,
-				docker_ip : `127.0.0.${1 + i}`, //"127.0.0.1", 
+				docker_ip :  `127.0.0.${1 + i}`, //"127.0.0.1",
 				ws_port : start_ws_port + i,
 				admin_ws_port : start_admin_ws_port + i,
 				stun_server : "stun.voip.eutelia.it",
-				nat_1_1_mapping : "127.0.0.1", //"3.121.126.200",
+				nat_1_1_mapping : `127.0.0.${1 + i}`, //"127.0.0.1", //"3.121.126.200",
 				stun_port : 3478,
 				debug_level : 5 //6
 			});
@@ -212,7 +213,6 @@ export class Janus {
 			this.options.logger.json(list);
 
 			const instance = new JanusInstance({
-				generateId: this.options.generateId,
 				options: {
 					protocol,
 					address,
@@ -623,6 +623,34 @@ export class Janus {
 
 
 
+	private onKeepAlive = (user_id:string) : Response => {
+
+		if (!this.connections[user_id]) {
+			return {
+				type: 'error',
+				load: `missing ${user_id}`
+			};
+		}
+
+		clearTimeout(this.connections[user_id].t);
+
+		const t = setTimeout(() => {
+
+			this.onTimeout(user_id, this.shouldDetach);
+			
+		}, this.keepAliveTimeout);
+
+		this.connections[user_id].t = t;
+
+		return {
+			type: 'keepalive',
+			load: user_id
+		};
+
+	}
+
+	
+
 	private onMessage = (user_id) => async (data) => {
 		let message = null;
 		
@@ -678,13 +706,17 @@ export class Janus {
 
 
 
-	private detachUserHandles = async (user_id:string) => {
+	//TODO improve
+	private detachUserHandles = async (user_id:string, ignoreHandle?) => {
 
 		const instances = Object.values(this.instances);
 
 		for(let i = 0;  i < instances.length; i++) {
 			const instance = instances[i];
 			for(const handle_id in instance.handles) {
+				if (handle_id==ignoreHandle) {
+					continue;
+				}
 				if (instance.handles[handle_id]===user_id) {
 					try {
 						await instance.leave(handle_id);
@@ -699,34 +731,6 @@ export class Janus {
 				}
 			}
 		}
-
-	}
-
-
-
-	private onKeepAlive = (user_id:string) : Response => {
-
-		if (!this.connections[user_id]) {
-			return {
-				type: 'error',
-				load: `missing ${user_id}`
-			};
-		}
-
-		clearTimeout(this.connections[user_id].t);
-
-		const t = setTimeout(() => {
-
-			this.onTimeout(user_id, this.shouldDetach);
-			
-		}, this.keepAliveTimeout);
-
-		this.connections[user_id].t = t;
-
-		return {
-			type: 'keepalive',
-			load: user_id
-		};
 
 	}
 
@@ -852,7 +856,16 @@ export class Janus {
 				response = await this.onConfigure(message);
 				break;
 			case 'joinandconfigure':
-				response = await this.onJoinAndConfigure(user_id, message);
+				try {
+					response = await this.onJoinAndConfigure(user_id, message);
+				} catch(error) {
+					if (error.code===436) {
+						await this.detachUserHandles(user_id, message.load.handle_id);
+						response = await this.onJoinAndConfigure(user_id, message);
+					} else {
+						throw new Error(error);
+					}
+				}
 				break;
 			case 'publish':
 				response = await this.onPublish(message);
@@ -1398,7 +1411,7 @@ export class Janus {
 
 	private getPin = () : string => {
 
-		const pin = this.options.generateId();
+		const pin = uuidv1(); //this.options.generateId();
 
 		return pin;
 
@@ -1408,7 +1421,7 @@ export class Janus {
 
 	private getRoomId = () : string => {
 
-		const id = this.options.generateId();
+		const id = uuidv1(); //this.options.generateId();
 
 		return id;
 
@@ -1418,7 +1431,7 @@ export class Janus {
 
 	private getSecret = () => {
 
-		const secret = this.options.generateId();
+		const secret = uuidv1(); //this.options.generateId();
 
 		return secret;
 
