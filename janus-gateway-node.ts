@@ -835,19 +835,7 @@ export class Janus {
 				response = await this.getIceHandle(user_id, message.load.room_id);
 				break;
 			case 'rooms':
-				await this.synchronize();
-				const rooms = Object.values(this.rooms);
-				response = {
-					type: 'rooms',
-					load: rooms.map((data) => {
-						const room = {
-							...data
-						};
-						room.pin = undefined;
-						room.secret = undefined;
-						return data;
-					})
-				};
+				response = await this.getRooms();
 				break;
 			case 'join':
 				response = await this.joinRoom(user_id, message);
@@ -899,6 +887,28 @@ export class Janus {
 		response.transaction = message.transaction;
 
 		return response;
+		
+	}
+
+
+
+	public getRooms = async () => {
+
+		await this.synchronize();
+
+		const rooms = Object.values(this.rooms);
+
+		return {
+			type: 'rooms',
+			load: rooms.map((data) => {
+				const room = {
+					...data
+				};
+				room.pin = undefined;
+				room.secret = undefined;
+				return data;
+			})
+		};
 		
 	}
 
