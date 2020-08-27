@@ -1625,6 +1625,23 @@
                 ws.on('message', this.onMessage(user_id));
                 ws.send('connected');
             };
+            this.onKeepAlive = (user_id) => {
+                if (!this.connections[user_id]) {
+                    return {
+                        type: 'error',
+                        load: `missing ${user_id}`
+                    };
+                }
+                clearTimeout(this.connections[user_id].t);
+                const t = setTimeout(() => {
+                    this.onTimeout(user_id, this.shouldDetach);
+                }, this.keepAliveTimeout);
+                this.connections[user_id].t = t;
+                return {
+                    type: 'keepalive',
+                    load: user_id
+                };
+            };
             this.onMessage = (user_id) => async (data) => {
                 let message = null;
                 try {
@@ -1666,11 +1683,14 @@
                     this.onError(error);
                 }
             };
-            this.detachUserHandles = async (user_id) => {
+            this.detachUserHandles = async (user_id, ignoreHandle) => {
                 const instances = Object.values(this.instances);
                 for (let i = 0; i < instances.length; i++) {
                     const instance = instances[i];
                     for (const handle_id in instance.handles) {
+                        if (handle_id == ignoreHandle) {
+                            continue;
+                        }
                         if (instance.handles[handle_id] === user_id) {
                             try {
                                 await instance.leave(handle_id);
@@ -1687,23 +1707,6 @@
                         }
                     }
                 }
-            };
-            this.onKeepAlive = (user_id) => {
-                if (!this.connections[user_id]) {
-                    return {
-                        type: 'error',
-                        load: `missing ${user_id}`
-                    };
-                }
-                clearTimeout(this.connections[user_id].t);
-                const t = setTimeout(() => {
-                    this.onTimeout(user_id, this.shouldDetach);
-                }, this.keepAliveTimeout);
-                this.connections[user_id].t = t;
-                return {
-                    type: 'keepalive',
-                    load: user_id
-                };
             };
             this.onJanusEvent = async (instance_id, json) => {
                 if (!json.sender) {
@@ -1784,17 +1787,7 @@
                         response = await this.getIceHandle(user_id, message.load.room_id);
                         break;
                     case 'rooms':
-                        await this.synchronize();
-                        const rooms = Object.values(this.rooms);
-                        response = {
-                            type: 'rooms',
-                            load: rooms.map((data) => {
-                                const room = Object.assign({}, data);
-                                room.pin = undefined;
-                                room.secret = undefined;
-                                return data;
-                            })
-                        };
+                        response = await this.getRooms();
                         break;
                     case 'join':
                         response = await this.joinRoom(user_id, message);
@@ -1803,7 +1796,18 @@
                         response = await this.onConfigure(message);
                         break;
                     case 'joinandconfigure':
-                        response = await this.onJoinAndConfigure(user_id, message);
+                        try {
+                            response = await this.onJoinAndConfigure(user_id, message);
+                        }
+                        catch (error) {
+                            if (error.code === 436) {
+                                await this.detachUserHandles(user_id, message.load.handle_id);
+                                response = await this.onJoinAndConfigure(user_id, message);
+                            }
+                            else {
+                                throw new Error(error);
+                            }
+                        }
                         break;
                     case 'publish':
                         response = await this.onPublish(message);
@@ -1835,6 +1839,19 @@
                 }
                 response.transaction = message.transaction;
                 return response;
+            };
+            this.getRooms = async () => {
+                await this.synchronize();
+                const rooms = Object.values(this.rooms);
+                return {
+                    type: 'rooms',
+                    load: rooms.map((data) => {
+                        const room = Object.assign({}, data);
+                        room.pin = undefined;
+                        room.secret = undefined;
+                        return data;
+                    })
+                };
             };
             this.createRoom = async (message) => {
                 const { description, bitrate, bitrate_cap, fir_freq, videocodec, vp9_profile } = message.load;

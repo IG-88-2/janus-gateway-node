@@ -93,12 +93,16 @@ export declare class Janus {
     private onError;
     private onTimeout;
     private onConnection;
+    private onKeepAlive;
     private onMessage;
     private notify;
     private detachUserHandles;
-    private onKeepAlive;
     private onJanusEvent;
     private onUserMessage;
+    getRooms: () => Promise<{
+        type: string;
+        load: RoomContext[];
+    }>;
     createRoom: (message: any) => Promise<Response>;
     destroyRoom: (message: any) => Promise<Response>;
     getIceHandle: (user_id: string, room_id: string) => Promise<Response>;
