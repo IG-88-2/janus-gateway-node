@@ -713,20 +713,18 @@
                     else {
                         response = await this.createSession();
                     }
-                    this.logger.info('session claimed', this.id);
-                    this.logger.json(response);
                     this.onSession(response);
+                    this.logger.info(`[${this.id}] session claimed - ${this.sessionId}`);
                     const handleId = await this.attach();
                     this.localHandleId = handleId;
-                    this.logger.info(`attached ${handleId}`, this.id);
+                    this.logger.info(`[${this.id}] instance attached ${handleId}`);
                     await this.connectAdmin();
-                    this.logger.info(`admin connected`, this.id);
                     if (this.notifyConnected) {
                         this.notifyConnected();
                         delete this.notifyConnected;
                     }
                     this.connected = true;
-                    this.logger.info('websocket connected', this.id);
+                    this.logger.info(`[${this.id}] websocket connected`);
                     this.onConnected();
                 }
                 catch (error) {
@@ -748,6 +746,7 @@
                 if (this.sessionId) {
                     request.session_id = this.sessionId;
                 }
+                this.logger.info(`transaction ${request.janus} for session id ${this.sessionId}`);
                 let r = null;
                 let p = null;
                 try {
@@ -768,9 +767,7 @@
                     const f = (message) => {
                         if (request.janus !== "keepalive" &&
                             !(request.body && request.body.request === "list") &&
-                            !(request.body && request.body.request === "listparticipants")) {
-                            this.logger.json(Object.assign(Object.assign({}, message), { request }));
-                        }
+                            !(request.body && request.body.request === "listparticipants")) ;
                         let done = this.transactionMatch(id, request, message);
                         if (done) {
                             if (timeout) {
@@ -1384,11 +1381,9 @@
                 this.instances = {};
                 const list = await this.generateInstances();
                 this.options.logger.info(`instances generated`);
-                this.options.logger.json(list);
                 for (let i = 0; i < list.length; i++) {
                     const { protocol, address, port, adminPort, adminKey, server_name } = list[i];
                     this.options.logger.info(`ready to connect instance ${i}`);
-                    this.options.logger.json(list);
                     const instance = new JanusInstance({
                         options: {
                             protocol,
@@ -1445,6 +1440,7 @@
                 }
                 for (let i = 0; i < instances.length; i++) {
                     const next = instances[i];
+                    this.options.logger.info(`disconnect instance ${next.id}`);
                     await next.disconnect();
                 }
                 this.instances = {};
@@ -1459,7 +1455,6 @@
             };
             this.launchContainers = (instances) => {
                 this.options.logger.info(`launching ${instances.length} containers`);
-                this.options.logger.json(instances);
                 const step = 101;
                 const maxBuffer = 1024 * 1024 * 1024;
                 let udpStart = 20000;
@@ -1560,7 +1555,6 @@
             this.transport = () => {
                 this.options.logger.info(`launching transport...`);
                 let options = this.defaultWebSocketOptions;
-                this.options.logger.json(options);
                 if (this.options.webSocketOptions) {
                     options = this.options.webSocketOptions;
                 }
@@ -1571,7 +1565,6 @@
                     }
                 }
                 this.connections = {};
-                this.options.logger.json(options);
                 this.wss = new WebSocket$2.Server(options);
                 this.wss.on('connection', this.onConnection);
                 this.wss.on('listening', () => {
@@ -1602,7 +1595,10 @@
                 ws.close();
                 delete this.connections[user_id];
                 if (detach) {
-                    this.detachUserHandles(user_id);
+                    this.detachUserHandles(user_id)
+                        .then(() => {
+                        this.options.logger.info(`cleared for user ${user_id}`);
+                    });
                 }
             };
             this.onConnection = async (ws, req) => {
@@ -1611,12 +1607,15 @@
                     ws.close();
                     return;
                 }
+                this.options.logger.info(`new connection from ${user_id}`);
                 if (this.connections[user_id]) {
+                    this.options.logger.info(`connection from ${user_id} already exist - cleanup`);
                     this.connections[user_id].ws.removeListener('message', this.onMessage);
                     clearTimeout(this.connections[user_id].t);
                     if (this.shouldDetach) {
                         await this.detachUserHandles(user_id);
                     }
+                    this.options.logger.info(`connection from ${user_id} cleared`);
                 }
                 const t = setTimeout(() => {
                     this.onTimeout(user_id, this.shouldDetach);
@@ -1711,7 +1710,7 @@
             this.onJanusEvent = async (instance_id, json) => {
                 if (!json.sender) {
                     if (json.janus !== "ack") {
-                        this.options.logger.info(`${instance_id} json.sender undefined - ${JSON.stringify(json)}`);
+                        this.options.logger.info(`[?] ${instance_id} json.sender undefined - ${JSON.stringify(json)}`);
                     }
                     return;
                 }
@@ -1719,7 +1718,7 @@
                 const user_id = this.getHandleUser(instance_id, handle_id);
                 if (!user_id) {
                     if (!this.isLocalHandle(instance_id, handle_id)) {
-                        this.options.logger.info(`${instance_id} user_id not found for handle_id ${handle_id} - ${JSON.stringify(json)}`);
+                        this.options.logger.info(`[${handle_id}] ${instance_id} user_id not found - ${JSON.stringify(json)}`);
                     }
                     return;
                 }
@@ -1917,8 +1916,7 @@
             this.joinRoom = async (user_id, message) => {
                 const { room_id, display, handle_id, feed, ptype } = message.load;
                 const room = this.rooms[room_id];
-                this.options.logger.info(`user ${ptype} ${user_id} with handle ${handle_id} is joining room ${room_id} which already contains participants...`);
-                this.options.logger.json(room.participants);
+                this.options.logger.info(`[${handle_id}] ${ptype} ${user_id} is joining room ${room_id} on instance ${room.instance_id}`);
                 const instance = this.instances[room.instance_id];
                 const result = await instance.join({
                     user_id,
@@ -1944,6 +1942,7 @@
             this.onJoinAndConfigure = async (user_id, message) => {
                 const { jsep, room_id, handle_id, ptype, feed } = message.load;
                 const room = this.rooms[room_id];
+                this.options.logger.info(`[${handle_id}] ${ptype} ${user_id} is joining (joinandconfigure) room ${room_id} on instance ${room.instance_id}`);
                 const instance = this.instances[room.instance_id];
                 const result = await instance.joinandconfigure({
                     jsep,
@@ -1968,6 +1967,7 @@
             this.onConfigure = async (message) => {
                 const { jsep, room_id, handle_id, video, audio, ptype } = message.load;
                 const room = this.rooms[room_id];
+                this.options.logger.info(`[${handle_id}] ${ptype} is configuring room ${room_id} on instance ${room.instance_id}`);
                 const instance = this.instances[room.instance_id];
                 const request = {
                     room: room_id,
@@ -1998,6 +1998,7 @@
             this.onPublish = async (message) => {
                 const { jsep, room_id, handle_id } = message.load;
                 const room = this.rooms[room_id];
+                this.options.logger.info(`[${handle_id}] user is publishing in room ${room_id} on instance ${room.instance_id}`);
                 const instance = this.instances[room.instance_id];
                 const result = await instance.publish({
                     jsep,
@@ -2019,6 +2020,7 @@
             this.onUnpublish = async (message) => {
                 const { room_id, handle_id } = message.load;
                 const room = this.rooms[room_id];
+                this.options.logger.info(`[${handle_id}] user is unpublishing in room ${room_id} on instance ${room.instance_id}`);
                 const instance = this.instances[room.instance_id];
                 const result = await instance.unpublish({
                     handle_id,
@@ -2034,6 +2036,7 @@
             this.onHangup = async (message) => {
                 const { room_id, handle_id } = message.load;
                 const room = this.rooms[room_id];
+                this.options.logger.info(`[${handle_id}] user is hanging up in room ${room_id} on instance ${room.instance_id}`);
                 const instance = this.instances[room.instance_id];
                 const result = await instance.hangup(handle_id);
                 const response = {
@@ -2045,6 +2048,7 @@
             this.onDetach = async (message) => {
                 const { room_id, handle_id } = message.load;
                 const room = this.rooms[room_id];
+                this.options.logger.info(`[${handle_id}] user detaching in room ${room_id} on instance ${room.instance_id}`);
                 const instance = this.instances[room.instance_id];
                 const result = await instance.detach(handle_id);
                 const response = {
@@ -2056,6 +2060,7 @@
             this.onLeave = async (message) => {
                 const { room_id, handle_id } = message.load;
                 const room = this.rooms[room_id];
+                this.options.logger.info(`[${handle_id}] user leaving room ${room_id} on instance ${room.instance_id}`);
                 const instance = this.instances[room.instance_id];
                 const result = await instance.leave(handle_id);
                 const response = {
@@ -2067,6 +2072,7 @@
             this.onTrickle = async (message) => {
                 const { room_id, candidate, handle_id } = message.load;
                 const room = this.rooms[room_id];
+                this.options.logger.info(`[${handle_id}] got trickle in room ${room_id} on instance ${room.instance_id}`);
                 const instance = this.instances[room.instance_id];
                 const result = await instance.trickle(candidate, handle_id);
                 const response = {
@@ -2078,6 +2084,7 @@
             this.onStart = async (message) => {
                 const { room_id, handle_id, answer } = message.load;
                 const room = this.rooms[room_id];
+                this.options.logger.info(`[${handle_id}] start in room ${room_id} on instance ${room.instance_id}`);
                 const instance = this.instances[room.instance_id];
                 const result = await instance.start({
                     answer,

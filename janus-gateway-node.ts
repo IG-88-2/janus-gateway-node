@@ -203,14 +203,10 @@ export class Janus {
 
 		this.options.logger.info(`instances generated`);
 
-		this.options.logger.json(list);
-
 		for(let i = 0; i < list.length; i++) {
 			const { protocol, address, port, adminPort, adminKey, server_name } = list[i];
 			
 			this.options.logger.info(`ready to connect instance ${i}`);
-
-			this.options.logger.json(list);
 
 			const instance = new JanusInstance({
 				options: {
@@ -300,6 +296,7 @@ export class Janus {
 
 		for(let i = 0; i < instances.length; i++) {
 			const next = instances[i];
+			this.options.logger.info(`disconnect instance ${next.id}`);
 			await next.disconnect();
 		}
 		
@@ -325,8 +322,6 @@ export class Janus {
 	private launchContainers = (instances) => {
 		
 		this.options.logger.info(`launching ${instances.length} containers`);
-	
-		this.options.logger.json(instances);
 	
 		const step = 101;
 
@@ -504,8 +499,6 @@ export class Janus {
 
 		let options = this.defaultWebSocketOptions;
 		
-		this.options.logger.json(options);
-		
 		if (this.options.webSocketOptions) {
 			options = this.options.webSocketOptions;
 		}
@@ -518,8 +511,6 @@ export class Janus {
 		}
 
 		this.connections = {};
-
-		this.options.logger.json(options);
 		
 		this.wss = new WebSocket.Server(options);
 		
@@ -579,7 +570,10 @@ export class Janus {
 		delete this.connections[user_id];
 
 		if (detach) {
-			this.detachUserHandles(user_id);
+			this.detachUserHandles(user_id)
+			.then(() => {
+				this.options.logger.info(`cleared for user ${user_id}`);
+			});
 		}
 
 	}
@@ -594,8 +588,12 @@ export class Janus {
 			ws.close();
 			return;
 		}
+
+		this.options.logger.info(`new connection from ${user_id}`);
 		
 		if (this.connections[user_id]) {
+			this.options.logger.info(`connection from ${user_id} already exist - cleanup`);
+
 			this.connections[user_id].ws.removeListener('message', this.onMessage);
 
 			//TODO review ???
@@ -605,6 +603,8 @@ export class Janus {
 			if (this.shouldDetach) {
 				await this.detachUserHandles(user_id);
 			}
+
+			this.options.logger.info(`connection from ${user_id} cleared`);
 		}
 		
 		const t = setTimeout(() => {
@@ -740,7 +740,7 @@ export class Janus {
 		
 		if (!json.sender) {
 			if (json.janus!=="ack") {
-				this.options.logger.info(`${instance_id} json.sender undefined - ${JSON.stringify(json)}`);
+				this.options.logger.info(`[?] ${instance_id} json.sender undefined - ${JSON.stringify(json)}`);
 			}
 			return;
 		}
@@ -751,7 +751,7 @@ export class Janus {
 
 		if (!user_id) {
 			if (!this.isLocalHandle(instance_id, handle_id)) {
-				this.options.logger.info(`${instance_id} user_id not found for handle_id ${handle_id} - ${JSON.stringify(json)}`);
+				this.options.logger.info(`[${handle_id}] ${instance_id} user_id not found - ${JSON.stringify(json)}`);
 			}
 			return;
 		}
@@ -1046,9 +1046,7 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
-		this.options.logger.info(`user ${ptype} ${user_id} with handle ${handle_id} is joining room ${room_id} which already contains participants...`);
-
-		this.options.logger.json(room.participants);
+		this.options.logger.info(`[${handle_id}] ${ptype} ${user_id} is joining room ${room_id} on instance ${room.instance_id}`);
 
 		const instance = this.instances[room.instance_id];
 		
@@ -1098,6 +1096,8 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
+		this.options.logger.info(`[${handle_id}] ${ptype} ${user_id} is joining (joinandconfigure) room ${room_id} on instance ${room.instance_id}`);
+
 		const instance = this.instances[room.instance_id];
 		
 		const result : any = await instance.joinandconfigure({
@@ -1140,6 +1140,8 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
+		this.options.logger.info(`[${handle_id}] ${ptype} is configuring room ${room_id} on instance ${room.instance_id}`);
+		
 		const instance = this.instances[room.instance_id];
 		
 		const request : any = {
@@ -1188,6 +1190,8 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
+		this.options.logger.info(`[${handle_id}] user is publishing in room ${room_id} on instance ${room.instance_id}`);
+		
 		const instance = this.instances[room.instance_id];
 
 		const result : any = await instance.publish({
@@ -1217,8 +1221,10 @@ export class Janus {
 	public onUnpublish = async (message:any) : Promise<Response> => {
 		
 		const { room_id, handle_id } = message.load;
-
+		
 		const room = this.rooms[room_id];
+
+		this.options.logger.info(`[${handle_id}] user is unpublishing in room ${room_id} on instance ${room.instance_id}`);
 
 		const instance = this.instances[room.instance_id];
 
@@ -1245,6 +1251,8 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
+		this.options.logger.info(`[${handle_id}] user is hanging up in room ${room_id} on instance ${room.instance_id}`);
+		
 		const instance = this.instances[room.instance_id];
 
 		const result = await instance.hangup(handle_id);
@@ -1266,6 +1274,8 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
+		this.options.logger.info(`[${handle_id}] user detaching in room ${room_id} on instance ${room.instance_id}`);
+		
 		const instance = this.instances[room.instance_id];
 
 		const result = await instance.detach(handle_id);
@@ -1287,6 +1297,8 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
+		this.options.logger.info(`[${handle_id}] user leaving room ${room_id} on instance ${room.instance_id}`);
+		
 		const instance = this.instances[room.instance_id];
 
 		const result = await instance.leave(handle_id);
@@ -1308,6 +1320,8 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
+		this.options.logger.info(`[${handle_id}] got trickle in room ${room_id} on instance ${room.instance_id}`);
+		
 		const instance = this.instances[room.instance_id];
 
 		const result = await instance.trickle(candidate, handle_id);
@@ -1329,6 +1343,8 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
+		this.options.logger.info(`[${handle_id}] start in room ${room_id} on instance ${room.instance_id}`);
+		
 		const instance = this.instances[room.instance_id];
 
 		const result = await instance.start({
@@ -1421,7 +1437,7 @@ export class Janus {
 
 	private getPin = () : string => {
 
-		const pin = uuidv1(); //this.options.generateId();
+		const pin = uuidv1();
 
 		return pin;
 
@@ -1431,7 +1447,7 @@ export class Janus {
 
 	private getRoomId = () : string => {
 
-		const id = uuidv1(); //this.options.generateId();
+		const id = uuidv1();
 
 		return id;
 
@@ -1441,7 +1457,7 @@ export class Janus {
 
 	private getSecret = () => {
 
-		const secret = uuidv1(); //this.options.generateId();
+		const secret = uuidv1();
 
 		return secret;
 

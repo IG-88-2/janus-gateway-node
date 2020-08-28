@@ -128,13 +128,22 @@ export class JanusInstance {
 			} catch(error) {}
 
 			if (message) { 
+				//TODO REVIEW exceptional case ???
+				/*
+				if (message.janus==="detached") {
+					for(let id in this.calls) {
+						const resolve = this.calls[id];
+						resolve(message);
+					}
+				} else {
+				*/
 				const id = message.transaction;
 				const resolve = this.calls[id];
-
 				if (resolve) {
 					resolve(message);
 				}
 				this.onMessage(message);
+				//}
 			}
 
 		});
@@ -291,22 +300,18 @@ export class JanusInstance {
 			} else {
 				response = await this.createSession();
 			}
-
-			this.logger.info('session claimed', this.id);
-
-			this.logger.json(response);
 			
 			this.onSession(response);
+
+			this.logger.info(`[${this.id}] session claimed - ${this.sessionId}`);
 
 			const handleId = await this.attach();
 
 			this.localHandleId = handleId;
 
-			this.logger.info(`attached ${handleId}`, this.id);
+			this.logger.info(`[${this.id}] instance attached ${handleId}`);
 			
 			await this.connectAdmin();
-
-			this.logger.info(`admin connected`, this.id);
 
 			//const info = await this.info();
 
@@ -317,7 +322,7 @@ export class JanusInstance {
 
 			this.connected = true;
 			
-			this.logger.info('websocket connected', this.id);
+			this.logger.info(`[${this.id}] websocket connected`);
 
 			this.onConnected();
 
@@ -358,6 +363,8 @@ export class JanusInstance {
 			request.session_id = this.sessionId;
 		}
 
+		this.logger.info(`transaction ${request.janus} for session id ${this.sessionId}`);
+
 		let r = null;
 		let p = null;
 		
@@ -386,10 +393,7 @@ export class JanusInstance {
 					!(request.body && request.body.request==="list") && 
 					!(request.body && request.body.request==="listparticipants")
 				) {
-					this.logger.json({
-						...message,
-						request 
-					});
+					//this.logger.json({ ...message, request });
 				}
 
 				let done = this.transactionMatch(id, request, message);
@@ -503,7 +507,20 @@ export class JanusInstance {
 	private transactionMatch = (id:string, request:any, response:any) => {
 
 		let done = false;
-
+		
+		//TODO REVIEW exceptional case ???
+		/*
+		if (request.janus==="detach") {
+			done = (
+				response.janus==="detached" && 
+				request.handle_id==response.sender && 
+				request.session_id==response.session_id
+			);
+			if (done) {
+				this.logger.info(`transactionMatch - detached`);
+			}
+		} else
+		*/
 		if (request.janus==="keepalive") {
 			done = response.transaction === id;
 		} else if (request.janus==="trickle") {
