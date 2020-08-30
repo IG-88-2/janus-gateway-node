@@ -428,16 +428,69 @@ export class Janus {
 	
 
 
+	private getDuplicateIds = async () => {
+
+		const instances = Object.values(this.instances);
+
+		const acc = {};
+		
+		for(let i = 0; i < instances.length; i++) {
+			const instance = instances[i];
+			
+			if (!instance) {
+				continue;
+			}
+
+			const result : any = await instance.listRooms();
+			const rooms : JanusRoom[] = result.plugindata.data.list;
+
+			for(let j = 0; j < rooms.length; j++) {
+				const { room } = rooms[j];
+				
+				if (!acc[room]) {
+					acc[room] = 1;
+				} else {
+					acc[room] += 1;
+				}
+			}
+		}
+
+		let result = [];
+
+		for(let room in acc) {
+			const count = acc[room];
+			if (count && count > 1) {
+				result.push(room);
+			}
+		}
+
+		return result;
+
+	}
+
+
+
 	private synchronize = async (instance_id?:string) : Promise<void> => {
 		
+		let duplicates = [];
+		
+		try {
+			duplicates = await this.getDuplicateIds();
+		} catch(error) {
+			this.onError(error);
+		}
+
+		if (duplicates.length > 0) {
+			const error = new Error(`rooms ids duplicated across instances - ${JSON.stringify(duplicates)}`);
+			this.onError(error);
+		}
+
 		const instances = Object.values(this.instances);
 		
 		for(let i = 0; i < instances.length; i++) {
 			const instance = instances[i];
 			
-			if (
-				!instance || (instance_id && instance.id!=instance_id)
-			) {
+			if (!instance || (instance_id && instance.id!=instance_id)) {
 				continue;
 			}
 
@@ -460,6 +513,10 @@ export class Janus {
 			
 			for(let j = 0; j < rooms.length; j++) {
 				const { room } = rooms[j];
+				const d = duplicates.findIndex((e) => e===room);
+				if (d!==-1) {
+					continue;
+				}
 				const participants = await instance.listParticipants(room);
 				const instance_id = instance.id;
 				const context : RoomContext = {

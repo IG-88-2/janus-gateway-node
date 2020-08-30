@@ -149,12 +149,16 @@ export class JanusInstance {
 		});
 		
         this.ws.addEventListener('close', () => {
+
+			this.logger.info(`[${this.id}] websocket closed`);
 			
 			this._onDisconnected();
 
 		});
 
 		this.ws.addEventListener('open', () => {
+
+			this.logger.info(`[${this.id}] websocket open`);
 			
 			this._onConnected();
 			
@@ -169,6 +173,8 @@ export class JanusInstance {
 		return new Promise((resolve, reject) => {
 
 			this.notifyConnected = (error) => {
+
+				this.logger.info(`[${this.id}] notify connected called...`);
 				
 				if (error) {
 					reject(error);
@@ -344,6 +350,8 @@ export class JanusInstance {
 	private _onDisconnected = () => {
 		
 		this.connected = false;
+
+		this.logger.info(`[${this.id}] websocket disconnected`);
 
 		this.onDisconnected();
 
