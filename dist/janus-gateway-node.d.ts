@@ -87,6 +87,7 @@ export declare class Janus {
     terminate: () => Promise<void>;
     private launchContainers;
     private terminateContainers;
+    private getDuplicateIds;
     private synchronize;
     private transport;
     private onError;

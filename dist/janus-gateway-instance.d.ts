@@ -53,7 +53,7 @@ export declare class JanusInstance {
     });
     private onError;
     connect: () => Promise<void>;
-    disconnect: () => any;
+    disconnect: () => Promise<any>;
     private onAdminMessage;
     connectAdmin: () => Promise<void>;
     disconnectAdmin: () => void;
@@ -68,7 +68,7 @@ export declare class JanusInstance {
     private onSession;
     private destroySession;
     private getStats;
-    getStatus: () => any;
+    getStatus: () => Promise<any>;
     info: () => any;
     createRoom: (data: {
         description: string;
@@ -80,17 +80,17 @@ export declare class JanusInstance {
         videocodec: string;
         vp9_profile: string;
         room: string;
-    }) => any;
-    editRoom: (data: any) => any;
+    }) => Promise<any>;
+    editRoom: (data: any) => Promise<any>;
     listHandles: () => any;
     handleInfo: (handle_id: string) => any;
-    listRooms: () => any;
-    listParticipants: (room_id: string) => any;
+    listRooms: () => Promise<any>;
+    listParticipants: (room_id: string) => Promise<any>;
     destroyRoom: (data: {
         room: number;
         secret: string;
         handle_id: number;
-    }) => any;
+    }) => Promise<any>;
     attach: (user_id?: string) => Promise<number>;
     join: (data: {
         user_id: string;
@@ -103,7 +103,7 @@ export declare class JanusInstance {
         videocodec?: string;
         feed?: number;
         display?: string;
-    }) => any;
+    }) => Promise<any>;
     joinandconfigure: (data: {
         user_id: string;
         jsep: any;
@@ -115,7 +115,7 @@ export declare class JanusInstance {
         audiocodec?: string;
         videocodec?: string;
         feed?: number;
-    }) => any;
+    }) => Promise<any>;
     kick: (room: any, user_id: any, handle_id: any) => any;
     publish: (data: {
         jsep: any;
@@ -125,14 +125,14 @@ export declare class JanusInstance {
         secret: string;
         audiocodec?: string;
         videocodec?: string;
-    }) => any;
+    }) => Promise<any>;
     start: (data: {
         answer: any;
         room: number;
         pin: string;
         secret: string;
         handle_id: number;
-    }) => any;
+    }) => Promise<any>;
     configure: (data: {
         jsep?: any;
         room: number;
@@ -144,15 +144,15 @@ export declare class JanusInstance {
         ptype: "publisher" | "subscriber";
         audio: boolean;
         video: boolean;
-    }) => any;
+    }) => Promise<any>;
     unpublish: (data: {
         handle_id: number;
         pin: string;
         secret: string;
-    }) => any;
-    hangup: (handle_id: any) => any;
-    detach: (handle_id: any) => any;
-    leave: (handle_id: any) => any;
-    trickle: (candidate: any, handle_id: number) => any;
-    pause: ({}: {}) => any;
+    }) => Promise<any>;
+    hangup: (handle_id: any) => Promise<any>;
+    detach: (handle_id: any) => Promise<void>;
+    leave: (handle_id: any) => Promise<any>;
+    trickle: (candidate: any, handle_id: number) => Promise<any>;
+    pause: ({}: {}) => Promise<any>;
 }

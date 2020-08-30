@@ -593,6 +593,30 @@
     const exec = require('child_process').exec;
     const WebSocket$1 = require('ws');
     const uuidv1 = require('uuid').v1;
+    const waitUntil = async (f, timeout, defaultInterval) => {
+        let interval = defaultInterval || 1000;
+        let time = 0;
+        const w = async (resolve, reject) => {
+            let done = false;
+            try {
+                done = await f(time);
+            }
+            catch (e) {
+            }
+            if (done) {
+                resolve();
+            }
+            else if (timeout && time > timeout) {
+                const error = new Error('waitUntil - timeout');
+                reject(error);
+            }
+            else {
+                time += interval;
+                setTimeout(() => w(resolve, reject), interval);
+            }
+        };
+        return new Promise(w);
+    };
     class JanusInstance {
         constructor({ options, logger, onMessage, onDisconnected, onConnected, onError }) {
             this.onError = (error, location) => {
@@ -623,9 +647,11 @@
                     }
                 });
                 this.ws.addEventListener('close', () => {
+                    this.logger.info(`[${this.id}] websocket closed`);
                     this._onDisconnected();
                 });
                 this.ws.addEventListener('open', () => {
+                    this.logger.info(`[${this.id}] websocket open`);
                     this._onConnected();
                 });
                 this.ws.addEventListener('error', error => {
@@ -633,6 +659,7 @@
                 });
                 return new Promise((resolve, reject) => {
                     this.notifyConnected = (error) => {
+                        this.logger.info(`[${this.id}] notify connected called...`);
                         if (error) {
                             reject(error);
                         }
@@ -737,9 +764,14 @@
             };
             this._onDisconnected = () => {
                 this.connected = false;
+                this.logger.info(`[${this.id}] websocket disconnected`);
                 this.onDisconnected();
             };
-            this.transaction = (request) => {
+            this.transaction = async (request) => {
+                if (!this.connected) {
+                    this.logger.info(`transaction - wait until connected...`);
+                    await waitUntil(() => Promise.resolve(this.connected), 30000, 500);
+                }
                 const timeout = this.transactionTimeout;
                 const id = uuidv1();
                 request.transaction = id;
@@ -1512,7 +1544,47 @@
                     this.containersLaunched = false;
                 }
             };
+            this.getDuplicateIds = async () => {
+                const instances = Object.values(this.instances);
+                const acc = {};
+                for (let i = 0; i < instances.length; i++) {
+                    const instance = instances[i];
+                    if (!instance) {
+                        continue;
+                    }
+                    const result = await instance.listRooms();
+                    const rooms = result.plugindata.data.list;
+                    for (let j = 0; j < rooms.length; j++) {
+                        const { room } = rooms[j];
+                        if (!acc[room]) {
+                            acc[room] = 1;
+                        }
+                        else {
+                            acc[room] += 1;
+                        }
+                    }
+                }
+                let result = [];
+                for (let room in acc) {
+                    const count = acc[room];
+                    if (count && count > 1) {
+                        result.push(room);
+                    }
+                }
+                return result;
+            };
             this.synchronize = async (instance_id) => {
+                let duplicates = [];
+                try {
+                    duplicates = await this.getDuplicateIds();
+                }
+                catch (error) {
+                    this.onError(error);
+                }
+                if (duplicates.length > 0) {
+                    const error = new Error(`rooms ids duplicated across instances - ${JSON.stringify(duplicates)}`);
+                    this.onError(error);
+                }
                 const instances = Object.values(this.instances);
                 for (let i = 0; i < instances.length; i++) {
                     const instance = instances[i];
@@ -1535,6 +1607,10 @@
                     }
                     for (let j = 0; j < rooms.length; j++) {
                         const { room } = rooms[j];
+                        const d = duplicates.findIndex((e) => e === room);
+                        if (d !== -1) {
+                            continue;
+                        }
                         const participants = await instance.listParticipants(room);
                         const instance_id = instance.id;
                         const context = Object.assign({ room_id: room, instance_id, pin: undefined, secret: undefined, participants }, rooms[j]);
