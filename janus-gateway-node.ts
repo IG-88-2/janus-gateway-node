@@ -154,13 +154,13 @@ export class Janus {
 				admin_key : uuidv1(),
 				server_name : `instance_${i}`,
 				log_prefix : `instance_${i}:`,
-				docker_ip :  `127.0.0.${1 + i}`, //"127.0.0.1",
+				docker_ip :  `127.0.0.${1 + i}`,
 				ws_port : start_ws_port + i,
 				admin_ws_port : start_admin_ws_port + i,
 				stun_server : "stun.voip.eutelia.it",
-				nat_1_1_mapping : `127.0.0.${1 + i}`, //"127.0.0.1", //"3.121.126.200",
+				nat_1_1_mapping : `127.0.0.${1 + i}`,
 				stun_port : 3478,
-				debug_level : 5 //6
+				debug_level : 5
 			});
 		}
 	
@@ -244,6 +244,8 @@ export class Janus {
 
 				await instance.connect();
 
+				this.options.logger.info(`${server_name} (await) connected`);
+				
 				this.instances[instance.id] = instance;
 
 			} catch(error) {
@@ -275,6 +277,8 @@ export class Janus {
 		}, this.syncInterval);
 		
 		await this.transport();
+
+		this.options.logger.info(`initialized...`);
 
 	}
 

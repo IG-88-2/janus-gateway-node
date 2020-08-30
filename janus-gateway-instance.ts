@@ -4,47 +4,7 @@ const WebSocket = require('ws');
 const uuidv1 = require('uuid').v1;
 import ReconnectingWebSocket from 'reconnecting-websocket';
 
-const waitUntil = async (f : (t:number) => Promise<boolean>, timeout:number, defaultInterval?:number) => {
 
-    let interval = defaultInterval || 1000;
-  
-    let time = 0;
-  
-    const w = async (resolve:() => void, reject:(error:any) => void) => {
-  
-        let done = false; 
-      
-        try {
-            
-            done = await f(time);
-    
-        } catch(e) {
-
-        }
-  
-        if (done) {
-
-            resolve();
-
-        } else if(timeout && time > timeout) {
-            
-            const error = new Error('waitUntil - timeout');
-
-            reject(error); 
-
-        } else {
-        
-            time += interval;
-    
-            setTimeout(() => w(resolve, reject), interval); 
-        
-        }
-  
-    };
-  
-    return new Promise(w);
-  
-}
 
 export class JanusInstance {
 	id:string
@@ -400,13 +360,7 @@ export class JanusInstance {
 
 
 	private transaction = async (request) => {
-
-		if (!this.connected) {
-			this.logger.info(`transaction - wait until connected...`);
-			//TODO replace with subject
-			await waitUntil(() => Promise.resolve(this.connected), 30000, 500);
-		}
-
+		
 		const timeout = this.transactionTimeout;
 
 		const id = uuidv1();
