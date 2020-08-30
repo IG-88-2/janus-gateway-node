@@ -593,30 +593,6 @@
     const exec = require('child_process').exec;
     const WebSocket$1 = require('ws');
     const uuidv1 = require('uuid').v1;
-    const waitUntil = async (f, timeout, defaultInterval) => {
-        let interval = defaultInterval || 1000;
-        let time = 0;
-        const w = async (resolve, reject) => {
-            let done = false;
-            try {
-                done = await f(time);
-            }
-            catch (e) {
-            }
-            if (done) {
-                resolve();
-            }
-            else if (timeout && time > timeout) {
-                const error = new Error('waitUntil - timeout');
-                reject(error);
-            }
-            else {
-                time += interval;
-                setTimeout(() => w(resolve, reject), interval);
-            }
-        };
-        return new Promise(w);
-    };
     class JanusInstance {
         constructor({ options, logger, onMessage, onDisconnected, onConnected, onError }) {
             this.onError = (error, location) => {
@@ -768,10 +744,6 @@
                 this.onDisconnected();
             };
             this.transaction = async (request) => {
-                if (!this.connected) {
-                    this.logger.info(`transaction - wait until connected...`);
-                    await waitUntil(() => Promise.resolve(this.connected), 30000, 500);
-                }
                 const timeout = this.transactionTimeout;
                 const id = uuidv1();
                 request.transaction = id;
@@ -1442,6 +1414,7 @@
                     });
                     try {
                         await instance.connect();
+                        this.options.logger.info(`${server_name} (await) connected`);
                         this.instances[instance.id] = instance;
                     }
                     catch (error) {
@@ -1461,6 +1434,7 @@
                     });
                 }, this.syncInterval);
                 await this.transport();
+                this.options.logger.info(`initialized...`);
             };
             this.terminate = async () => {
                 this.options.logger.info(`terminate...`);
@@ -1643,21 +1617,30 @@
                 this.connections = {};
                 this.wss = new WebSocket$2.Server(options);
                 this.wss.on('connection', this.onConnection);
-                this.wss.on('listening', () => {
-                    this.options.logger.info(`websocket transport is launched!`);
-                    this.listening = true;
-                    if (this.notifyConnected) {
-                        this.notifyConnected();
-                        delete this.notifyConnected;
-                    }
-                });
+                this.wss.on('listening', () => this.onListening());
+                this.t = setTimeout(() => this.onListening(), 3000);
                 this.wss.on('close', (error) => {
                     this.options.logger.info(`websocket transport is closed!`);
                     this.listening = false;
+                    if (this.t) {
+                        clearTimeout(this.t);
+                        this.t = undefined;
+                    }
                 });
                 return new Promise((resolve) => {
                     this.notifyConnected = () => resolve();
                 });
+            };
+            this.onListening = () => {
+                if (this.listening) {
+                    return;
+                }
+                this.options.logger.info(`websocket transport is launched!`);
+                this.listening = true;
+                if (this.notifyConnected) {
+                    this.notifyConnected();
+                    delete this.notifyConnected;
+                }
             };
             this.onError = (error) => {
                 if (this.options.onError) {

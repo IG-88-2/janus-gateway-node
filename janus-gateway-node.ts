@@ -93,6 +93,7 @@ export class Janus {
 	shouldDetach:boolean
 	context:any
 	wss:any
+	t:any
 	
 	constructor(options:JanusOptions) {
 		
@@ -576,18 +577,9 @@ export class Janus {
 		
 		this.wss.on('connection', this.onConnection);
 		
-		this.wss.on('listening', () => {
+		this.wss.on('listening', () => this.onListening());
 
-			this.options.logger.info(`websocket transport is launched!`);
-
-			this.listening = true;
-
-			if (this.notifyConnected) {
-				this.notifyConnected();
-				delete this.notifyConnected;
-			}
-			
-		});
+		this.t = setTimeout(() => this.onListening(), 3000);
 		
 		this.wss.on('close', (error) => {
 
@@ -595,6 +587,11 @@ export class Janus {
 
 			this.listening = false;
 
+			if (this.t) {
+				clearTimeout(this.t);
+				this.t = undefined;
+			}
+			
 		});
 		
 		return new Promise((resolve) => {
@@ -602,6 +599,25 @@ export class Janus {
 			this.notifyConnected = () => resolve();
 
 		});
+
+	}
+
+
+
+	private onListening = () => {
+
+		if (this.listening) {
+			return;
+		}
+
+		this.options.logger.info(`websocket transport is launched!`);
+
+		this.listening = true;
+
+		if (this.notifyConnected) {
+			this.notifyConnected();
+			delete this.notifyConnected;
+		}
 
 	}
 

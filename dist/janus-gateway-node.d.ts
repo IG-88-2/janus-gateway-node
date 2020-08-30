@@ -81,6 +81,7 @@ export declare class Janus {
     shouldDetach: boolean;
     context: any;
     wss: any;
+    t: any;
     constructor(options: JanusOptions);
     generateInstances: () => Promise<JanusInstanceOptions[]>;
     initialize: () => Promise<void>;
@@ -90,6 +91,7 @@ export declare class Janus {
     private getDuplicateIds;
     private synchronize;
     private transport;
+    private onListening;
     private onError;
     private onTimeout;
     private onConnection;
