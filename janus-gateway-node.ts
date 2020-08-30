@@ -46,20 +46,19 @@ interface JanusInstanceOptions {
 
 
 interface JanusOptions {
-	generateId: () => string,
 	retrieveContext: () => Promise<any>,
 	updateContext: (context:any) => Promise<any>,
 	selectInstance?: (instances:JanusInstance[]) => JanusInstance,
 	generateInstances?: () => Promise<JanusInstanceOptions[]>,
 	onError: (error:any) => void,
-	keepAliveTimeout:number,
-	syncInterval:number,
+	keepAliveTimeout: number,
+	syncInterval: number,
 	logger: {
 		info : (message:string) => void,
 		error : (error:any) => void,
 		json : (json:any) => void
 	},
-	instancesAmount?:number,
+	instancesAmount?: number,
 	webSocketOptions?: any
 }
 
@@ -151,8 +150,8 @@ export class Janus {
 	
 		for(let i = 0; i < this.instancesAmount; i++) {
 			instances.push({
-				id : uuidv1(), //this.options.generateId(),
-				admin_key : uuidv1(), //this.options.generateId(),
+				id : uuidv1(),
+				admin_key : uuidv1(),
 				server_name : `instance_${i}`,
 				log_prefix : `instance_${i}:`,
 				docker_ip :  `127.0.0.${1 + i}`, //"127.0.0.1",
