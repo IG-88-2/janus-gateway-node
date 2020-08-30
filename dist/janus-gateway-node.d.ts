@@ -30,7 +30,6 @@ interface JanusInstanceOptions {
     server_name: string;
 }
 interface JanusOptions {
-    generateId: () => string;
     retrieveContext: () => Promise<any>;
     updateContext: (context: any) => Promise<any>;
     selectInstance?: (instances: JanusInstance[]) => JanusInstance;

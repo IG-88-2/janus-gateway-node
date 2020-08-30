@@ -581,9 +581,12 @@ export class Janus {
 
 	private onConnection = async (ws, req) => {
 
+		this.options.logger.info(`new connection attempt`);
+
 		let user_id = this.getUserId(req);
 		
 		if (!user_id) {
+			this.options.logger.error(`new connection attempt - user id is missing! closing...`);
 			ws.close();
 			return;
 		}
