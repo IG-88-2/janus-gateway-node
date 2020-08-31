@@ -1482,12 +1482,12 @@
                         ["STUN_PORT", stun_port]
                     ];
                     let command = `docker run -i --cap-add=NET_ADMIN --name ${server_name} `;
-                    command += `-p ${docker_ip}:${udpStart}-${udpEnd}:${udpStart}-${udpEnd}/udp `;
+                    command += `-p ${udpStart}-${udpEnd}:${udpStart}-${udpEnd}/udp `;
                     command += `-p ${ws_port}:${ws_port} `;
                     command += `-p ${admin_ws_port}:${admin_ws_port} `;
                     command += `${args.map(([name, value]) => `-e ${name}="${value}"`).join(' ')} `;
                     command += `${this.dockerJanusImage}`;
-                    this.options.logger.info(`launching container ${i}...${command}`);
+                    this.options.logger.info(`launching container ${i}...${command}, nat 1 1 mapping ${nat_1_1_mapping}`);
                     child_process.exec(command, {
                         maxBuffer
                     }, (error, stdout, stderr) => {

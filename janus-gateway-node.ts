@@ -371,14 +371,14 @@ export class Janus {
 			//-P
 			//--network=host
 			//-p 127.0.0.1:20000-40000:20000-40000
-			//command += `-p 127.0.0.1:${udpStart}-${udpEnd}:${udpStart}-${udpEnd}/udp `;
-			command += `-p ${docker_ip}:${udpStart}-${udpEnd}:${udpStart}-${udpEnd}/udp `;
+			//command += `-p ${docker_ip}:${udpStart}-${udpEnd}:${udpStart}-${udpEnd}/udp `;
+			command += `-p ${udpStart}-${udpEnd}:${udpStart}-${udpEnd}/udp `;
 			command += `-p ${ws_port}:${ws_port} `;
 			command += `-p ${admin_ws_port}:${admin_ws_port} `;
 			command += `${args.map(([name,value]) => `-e ${name}="${value}"`).join(' ')} `;
 			command += `${this.dockerJanusImage}`;
 			
-			this.options.logger.info(`launching container ${i}...${command}`);
+			this.options.logger.info(`launching container ${i}...${command}, nat 1 1 mapping ${nat_1_1_mapping}`);
 	
 			exec(
 				command,
