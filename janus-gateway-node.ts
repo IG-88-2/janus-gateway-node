@@ -59,7 +59,8 @@ interface JanusOptions {
 		json : (json:any) => void
 	},
 	instancesAmount?: number,
-	webSocketOptions?: any
+	webSocketOptions?: any,
+	publicIp?: string
 }
 
 
@@ -159,7 +160,7 @@ export class Janus {
 				ws_port : start_ws_port + i,
 				admin_ws_port : start_admin_ws_port + i,
 				stun_server : "stun.voip.eutelia.it",
-				nat_1_1_mapping : `127.0.0.${1 + i}`,
+				nat_1_1_mapping : this.options.publicIp || `127.0.0.${1 + i}`,
 				stun_port : 3478,
 				debug_level : 5
 			});

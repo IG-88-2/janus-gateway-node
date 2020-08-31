@@ -44,6 +44,7 @@ interface JanusOptions {
     };
     instancesAmount?: number;
     webSocketOptions?: any;
+    publicIp?: string;
 }
 interface Response {
     type: string;
