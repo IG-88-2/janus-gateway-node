@@ -1,12 +1,12 @@
 # janus-gateway-node
-This package serve as an intermediate link between janus-gateway-client and collection of dockerized janus-gateway instances.
+This package can serve as an intermediate link between janus-gateway-client and collection of dockerized janus-gateway instances.
 It can be used as a part of existing setup or being wrapped in top layer api in order to create bridge
 between existing application and janus functionality. The simplest approach is taken in regard of how to bind
 particular janus-instance to particular client. This is done by means of binding specific room to particular instance.
 Instance selector and instances generator can be passed as a callbacks in constructor options. Internal instance selector
 rely on simple round robin approach. Instances generator will spawn local instances by default if no callback was supplied.
 Top level outside layer can exist which is going to launch instances on external machines and reduce responses in array of configurations
-which is going to be returned from generate instances callback. Package based upon [video](https://www.youtube.com/watch?v=zxRwELmyWU0&t=1s) i saw earlier about scaling [janus-gateway](https://github.com/meetecho/janus-gateway)
+which is going to be returned from generate instances callback. Package based upon [video](https://www.youtube.com/watch?v=zxRwELmyWU0&t=1s) i saw earlier about scaling [janus-gateway](https://github.com/meetecho/janus-gateway).
 ## Getting Started  
 ```
 yarn add janus-gateway-node 
