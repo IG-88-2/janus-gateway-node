@@ -4,20 +4,13 @@ import sourceMaps from 'rollup-plugin-sourcemaps';
 import typescript from 'rollup-plugin-typescript2';
 import copy from 'rollup-plugin-copy';
 const pkg = {
-  "main": "dist/index.cjs.js",
-  "module": "dist/index.esm.js",
-  "browser": "dist/index.js"
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js"
 };
 
 export default {
   input: `janus-gateway-node.ts`,
   output: [
-    {
-      name: 'janus-gateway-node', 
-      file: pkg.browser,
-      format: 'umd',
-      sourcemap: false
-    },
     {
       name: 'janus-gateway-node', 
       file: pkg.main,
@@ -44,7 +37,8 @@ export default {
     sourceMaps(),
     copy({
       targets: [
-        { src: './package.json', dest: 'dist' }
+        { src: './package.json', dest: 'dist' },
+        { src: './README.md', dest: 'dist' }
       ]
     })
   ]

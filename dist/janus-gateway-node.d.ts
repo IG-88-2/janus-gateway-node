@@ -30,8 +30,8 @@ interface JanusInstanceOptions {
     server_name: string;
 }
 interface JanusOptions {
-    retrieveContext: () => Promise<any>;
-    updateContext: (context: any) => Promise<any>;
+    retrieveContext?: () => Promise<any>;
+    updateContext?: (context: any) => Promise<any>;
     selectInstance?: (instances: JanusInstance[]) => JanusInstance;
     generateInstances?: () => Promise<JanusInstanceOptions[]>;
     onError: (error: any) => void;
@@ -80,6 +80,7 @@ export declare class Janus {
     notifyConnected: () => void;
     defaultWebSocketOptions: any;
     shouldDetach: boolean;
+    logger: any;
     context: any;
     wss: any;
     t: any;
@@ -108,6 +109,10 @@ export declare class Janus {
     }>;
     createRoom: (message: any) => Promise<Response>;
     destroyRoom: (message: any) => Promise<Response>;
+    private retrieveContext;
+    private updateContext;
+    private _retrieveContext;
+    private _updateContext;
     getIceHandle: (user_id: string, room_id: string) => Promise<Response>;
     joinRoom: (user_id: any, message: any) => Promise<Response>;
     private onKick;

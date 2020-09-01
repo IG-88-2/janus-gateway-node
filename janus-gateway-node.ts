@@ -1,9 +1,60 @@
 import { JanusInstance } from "./janus-gateway-instance";
 import { exec } from 'child_process';
+const path = require('path');
+const fs = require('fs');
 const uuidv1 = require('uuid').v1;
 const WebSocket = require("ws");
 const url = require("url");
 const uniq = (list:string[]) : boolean => list.length===[...new Set(list)].length;
+const util = require('util');
+
+
+
+let enable = true;
+
+
+
+const logger = {
+	enable : () => {
+
+        enable = true;
+    
+    },
+    disable : () => {
+    
+        enable = false;
+    
+    },
+	info : (message) => {
+
+		if (enable) {
+			console.log("\x1b[32m", `[test info] ${message}`);
+		}
+
+	},
+	error : (message) => {
+		
+		if (enable) {
+			if (typeof message==="string") {
+				console.log("\x1b[31m", `[test error] ${message}`);
+			} else {
+				try {
+					const string = util.inspect(message, {showHidden: false, depth: null});
+					console.log("\x1b[31m", `[test error] ${string}`);
+				} catch(error) {}
+			}
+		}
+
+	},
+	json : (object) => {
+
+		if (enable) {
+			const string = JSON.stringify(object, null, 2);
+			console.log("\x1b[37m", `[test json] ${string}`);
+		}
+
+	}
+};
 
 
 
@@ -46,8 +97,8 @@ interface JanusInstanceOptions {
 
 
 interface JanusOptions {
-	retrieveContext: () => Promise<any>,
-	updateContext: (context:any) => Promise<any>,
+	retrieveContext?: () => Promise<any>,
+	updateContext?: (context:any) => Promise<any>,
 	selectInstance?: (instances:JanusInstance[]) => JanusInstance,
 	generateInstances?: () => Promise<JanusInstanceOptions[]>,
 	onError: (error:any) => void,
@@ -92,6 +143,7 @@ export class Janus {
 	notifyConnected:() => void
 	defaultWebSocketOptions:any
 	shouldDetach:boolean
+	logger:any
 	context:any
 	wss:any
 	t:any
@@ -99,6 +151,12 @@ export class Janus {
 	constructor(options:JanusOptions) {
 		
 		this.options = options;
+
+		if (this.options.logger) {
+			this.logger = this.options.logger;
+		} else {
+			this.logger = logger;
+		}
 
 		this.rooms = {};
 		
@@ -196,18 +254,18 @@ export class Janus {
 	
 	public initialize = async () : Promise<void> => {
 
-		this.context = await this.options.retrieveContext();
+		this.context = await this.retrieveContext();
 		
 		this.instances = {};
 		
 		const list = await this.generateInstances();
 
-		this.options.logger.info(`instances generated`);
+		this.logger.info(`instances generated`);
 
 		for(let i = 0; i < list.length; i++) {
 			const { protocol, address, port, adminPort, adminKey, server_name } = list[i];
 			
-			this.options.logger.info(`ready to connect instance ${i}`);
+			this.logger.info(`ready to connect instance ${i}`);
 
 			const instance = new JanusInstance({
 				options: {
@@ -217,16 +275,16 @@ export class Janus {
 					adminPort,
 					adminKey,
 					server_name,
-					adminSecret: "janusoverlord"
+					adminSecret: "janusoverlord" //TODO
 				},
 				onDisconnected: () => {
 
-					this.options.logger.info(`${server_name} disconnected`);
+					this.logger.info(`${server_name} disconnected`);
 					
 				},
 				onConnected: () => {
 					
-					this.options.logger.info(`${server_name} connected`);
+					this.logger.info(`${server_name} connected`);
 
 				},
 				onMessage: (json) => {
@@ -239,14 +297,14 @@ export class Janus {
 					this.onError(error);
 
 				},
-				logger:this.options.logger
+				logger:this.logger
 			});
 			
 			try {
 
 				await instance.connect();
 
-				this.options.logger.info(`${server_name} (await) connected`);
+				this.logger.info(`${server_name} (await) connected`);
 				
 				this.instances[instance.id] = instance;
 
@@ -280,7 +338,7 @@ export class Janus {
 		
 		await this.transport();
 
-		this.options.logger.info(`initialized...`);
+		this.logger.info(`initialized...`);
 
 	}
 
@@ -288,9 +346,9 @@ export class Janus {
 
 	public terminate = async () => {
 
-		this.options.logger.info(`terminate...`);
+		this.logger.info(`terminate...`);
 
-		this.context = await this.options.updateContext(this.rooms);
+		this.context = await this.updateContext(this.rooms);
 
 		const instances : JanusInstance[] = Object.values(this.instances);
 
@@ -301,7 +359,7 @@ export class Janus {
 
 		for(let i = 0; i < instances.length; i++) {
 			const next = instances[i];
-			this.options.logger.info(`disconnect instance ${next.id}`);
+			this.logger.info(`disconnect instance ${next.id}`);
 			await next.disconnect();
 		}
 		
@@ -326,7 +384,7 @@ export class Janus {
 	
 	private launchContainers = (instances) => {
 		
-		this.options.logger.info(`launching ${instances.length} containers`);
+		this.logger.info(`launching ${instances.length} containers`);
 	
 		const step = 101;
 
@@ -378,7 +436,7 @@ export class Janus {
 			command += `${args.map(([name,value]) => `-e ${name}="${value}"`).join(' ')} `;
 			command += `${this.dockerJanusImage}`;
 			
-			this.options.logger.info(`launching container ${i}...${command}, nat 1 1 mapping ${nat_1_1_mapping}`);
+			this.logger.info(`launching container ${i}...${command}, nat 1 1 mapping ${nat_1_1_mapping}`);
 	
 			exec(
 				command,
@@ -387,13 +445,13 @@ export class Janus {
 				},
 				(error, stdout, stderr) => {
 					
-					this.options.logger.info(`container ${server_name} terminated`);
+					this.logger.info(`container ${server_name} terminated`);
 	
 					if (error) {
 						if (error.message) {
-							this.options.logger.error(error.message);
+							this.logger.error(error.message);
 						} else {
-							this.options.logger.error(error);
+							this.logger.error(error);
 						}
 					}
 	
@@ -423,7 +481,7 @@ export class Janus {
 		
 			} catch(error) {
 
-				this.options.logger.error(error);
+				this.logger.error(error);
 
 			}
 
@@ -549,7 +607,7 @@ export class Janus {
 			}
 		}
 		
-		this.context = await this.options.updateContext(this.rooms);
+		this.context = await this.updateContext(this.rooms);
 		
 	}
 
@@ -557,7 +615,7 @@ export class Janus {
 
 	private transport = () => {
 
-		this.options.logger.info(`launching transport...`);
+		this.logger.info(`launching transport...`);
 
 		let options = this.defaultWebSocketOptions;
 		
@@ -584,7 +642,7 @@ export class Janus {
 		
 		this.wss.on('close', (error) => {
 
-			this.options.logger.info(`websocket transport is closed!`);
+			this.logger.info(`websocket transport is closed!`);
 
 			this.listening = false;
 
@@ -611,7 +669,7 @@ export class Janus {
 			return;
 		}
 
-		this.options.logger.info(`websocket transport is launched!`);
+		this.logger.info(`websocket transport is launched!`);
 
 		this.listening = true;
 
@@ -636,7 +694,7 @@ export class Janus {
 
 	private onTimeout = (user_id:string, detach:boolean) => {
 		
-		this.options.logger.info(`timeout called for user ${user_id}`);
+		this.logger.info(`timeout called for user ${user_id}`);
 
 		const { ws } = this.connections[user_id];
 
@@ -649,7 +707,7 @@ export class Janus {
 		if (detach) {
 			this.detachUserHandles(user_id)
 			.then(() => {
-				this.options.logger.info(`cleared for user ${user_id}`);
+				this.logger.info(`cleared for user ${user_id}`);
 			});
 		}
 
@@ -659,20 +717,20 @@ export class Janus {
 
 	private onConnection = async (ws, req) => {
 
-		this.options.logger.info(`new connection attempt`);
+		this.logger.info(`new connection attempt`);
 
 		let user_id = this.getUserId(req);
 		
 		if (!user_id) {
-			this.options.logger.error(`new connection attempt - user id is missing! closing...`);
+			this.logger.error(`new connection attempt - user id is missing! closing...`);
 			ws.close();
 			return;
 		}
 
-		this.options.logger.info(`new connection from ${user_id}`);
+		this.logger.info(`new connection from ${user_id}`);
 		
 		if (this.connections[user_id]) {
-			this.options.logger.info(`connection from ${user_id} already exist - cleanup`);
+			this.logger.info(`connection from ${user_id} already exist - cleanup`);
 
 			this.connections[user_id].ws.removeListener('message', this.onMessage);
 
@@ -684,7 +742,7 @@ export class Janus {
 				await this.detachUserHandles(user_id);
 			}
 
-			this.options.logger.info(`connection from ${user_id} cleared`);
+			this.logger.info(`connection from ${user_id} cleared`);
 		}
 		
 		const t = setTimeout(() => {
@@ -820,7 +878,7 @@ export class Janus {
 		
 		if (!json.sender) {
 			if (json.janus!=="ack") {
-				this.options.logger.info(`[?] ${instance_id} json.sender undefined - ${JSON.stringify(json)}`);
+				this.logger.info(`[?] ${instance_id} json.sender undefined - ${JSON.stringify(json)}`);
 			}
 			return;
 		}
@@ -831,7 +889,7 @@ export class Janus {
 
 		if (!user_id) {
 			if (!this.isLocalHandle(instance_id, handle_id)) {
-				this.options.logger.info(`[${handle_id}] ${instance_id} user_id not found - ${JSON.stringify(json)}`);
+				this.logger.info(`[${handle_id}] ${instance_id} user_id not found - ${JSON.stringify(json)}`);
 			}
 			return;
 		}
@@ -1044,7 +1102,7 @@ export class Janus {
 		
 		this.rooms[room] = context;
 		
-		this.context = await this.options.updateContext(this.rooms);
+		this.context = await this.updateContext(this.rooms);
 
 		const response = {
 			type:'create_room',
@@ -1087,6 +1145,78 @@ export class Janus {
 	
 
 
+	private retrieveContext = async () => {
+
+		if (this.options.retrieveContext) {
+			return await this.options.retrieveContext();
+		}
+
+		return await this._retrieveContext();
+		
+	}
+
+	
+
+	private updateContext = async (rooms) => {
+
+		if (this.options.updateContext) {
+			return await this.options.updateContext(this.rooms);
+		}
+	
+		return await this._updateContext(rooms);
+
+	}
+
+
+
+	private _retrieveContext = () => {
+
+		try {
+	
+			const contextPath = path.resolve('context.json');
+	
+			const file = fs.readFileSync(contextPath, 'utf-8');
+	
+			const context = JSON.parse(file);
+	
+			return context;
+	
+		} catch(error) {
+	
+			this.logger.error(error);
+			
+			return {};
+	
+		}
+	
+	}
+
+	
+
+	private _updateContext = async (rooms) => {
+
+		try {
+			
+			const contextPath = path.resolve('context.json');
+	
+			const file = JSON.stringify(rooms);
+	
+			const fsp = fs.promises;
+	
+			await fsp.writeFile(contextPath, file, 'utf8');
+			
+		} catch(error) {
+			
+			this.logger.error(error);
+			
+		}
+	
+		return rooms;
+	
+	}
+
+
+
 	public getIceHandle = async (user_id:string, room_id:string) : Promise<Response> => {
 	
 		const room = this.rooms[room_id];
@@ -1126,7 +1256,7 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
-		this.options.logger.info(`[${handle_id}] ${ptype} ${user_id} is joining room ${room_id} on instance ${room.instance_id}`);
+		this.logger.info(`[${handle_id}] ${ptype} ${user_id} is joining room ${room_id} on instance ${room.instance_id}`);
 
 		const instance = this.instances[room.instance_id];
 		
@@ -1176,7 +1306,7 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
-		this.options.logger.info(`[${handle_id}] ${ptype} ${user_id} is joining (joinandconfigure) room ${room_id} on instance ${room.instance_id}`);
+		this.logger.info(`[${handle_id}] ${ptype} ${user_id} is joining (joinandconfigure) room ${room_id} on instance ${room.instance_id}`);
 
 		const instance = this.instances[room.instance_id];
 		
@@ -1220,7 +1350,7 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
-		this.options.logger.info(`[${handle_id}] ${ptype} is configuring room ${room_id} on instance ${room.instance_id}`);
+		this.logger.info(`[${handle_id}] ${ptype} is configuring room ${room_id} on instance ${room.instance_id}`);
 		
 		const instance = this.instances[room.instance_id];
 		
@@ -1270,7 +1400,7 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
-		this.options.logger.info(`[${handle_id}] user is publishing in room ${room_id} on instance ${room.instance_id}`);
+		this.logger.info(`[${handle_id}] user is publishing in room ${room_id} on instance ${room.instance_id}`);
 		
 		const instance = this.instances[room.instance_id];
 
@@ -1304,7 +1434,7 @@ export class Janus {
 		
 		const room = this.rooms[room_id];
 
-		this.options.logger.info(`[${handle_id}] user is unpublishing in room ${room_id} on instance ${room.instance_id}`);
+		this.logger.info(`[${handle_id}] user is unpublishing in room ${room_id} on instance ${room.instance_id}`);
 
 		const instance = this.instances[room.instance_id];
 
@@ -1331,7 +1461,7 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
-		this.options.logger.info(`[${handle_id}] user is hanging up in room ${room_id} on instance ${room.instance_id}`);
+		this.logger.info(`[${handle_id}] user is hanging up in room ${room_id} on instance ${room.instance_id}`);
 		
 		const instance = this.instances[room.instance_id];
 
@@ -1354,7 +1484,7 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
-		this.options.logger.info(`[${handle_id}] user detaching in room ${room_id} on instance ${room.instance_id}`);
+		this.logger.info(`[${handle_id}] user detaching in room ${room_id} on instance ${room.instance_id}`);
 		
 		const instance = this.instances[room.instance_id];
 
@@ -1377,7 +1507,7 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
-		this.options.logger.info(`[${handle_id}] user leaving room ${room_id} on instance ${room.instance_id}`);
+		this.logger.info(`[${handle_id}] user leaving room ${room_id} on instance ${room.instance_id}`);
 		
 		const instance = this.instances[room.instance_id];
 
@@ -1400,7 +1530,7 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
-		this.options.logger.info(`[${handle_id}] got trickle in room ${room_id} on instance ${room.instance_id}`);
+		this.logger.info(`[${handle_id}] got trickle in room ${room_id} on instance ${room.instance_id}`);
 		
 		const instance = this.instances[room.instance_id];
 
@@ -1423,7 +1553,7 @@ export class Janus {
 
 		const room = this.rooms[room_id];
 
-		this.options.logger.info(`[${handle_id}] start in room ${room_id} on instance ${room.instance_id}`);
+		this.logger.info(`[${handle_id}] start in room ${room_id} on instance ${room.instance_id}`);
 		
 		const instance = this.instances[room.instance_id];
 

@@ -1,16 +1,26 @@
 {
   "name": "janus-gateway-node",
-  "version": "0.0.88",
+  "version": "0.0.9",
   "description": "Janus Gateway Node",
   "author": "Anatoly Strashkevich",
   "homepage": "https://github.com/IG-88-2/janus-gateway-node",
   "copyright": "",
   "private": false,
   "repository": "https://github.com/IG-88-2/janus-gateway-node",
-  "main": "./index.cjs.js",
+  "main": "./index.js",
   "module": "./index.esm.js",
-  "browser": "./index.js",
   "types": "./janus-gateway-node.d.ts",
+  "keywords": [
+    "videoroom",
+    "webrtc",
+    "janus",
+    "janus-gateway",
+    "calls",
+    "videocalls",
+    "video",
+    "node",
+    "server"
+  ],
   "scripts": {
     "build": "rollup --config rollup.config.ts"
   },
