@@ -21,13 +21,21 @@ docker pull herbert1947/janus-gateway-videoroom:latest
 ```
 ## Usage
 
+Follow this [link](https://github.com/IG-88-2/react-videoroom-janus) to find information on how to use frontend part.  
+
 ```
 import { Janus } from 'janus-gateway-node';
 
-```
-## Props  
+...
 
-### prop 1
+const janus = new Janus();
+
+await janus.initialize();
+
+```
+## Options 
+
+### option 1
 
 > `(rooms:JanusRoom[]) => void` | _required_
 

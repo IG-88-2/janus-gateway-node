@@ -75,6 +75,14 @@ interface JanusRoom {
 
 
 
+interface Logger {
+	info : (message:string) => void,
+	error : (error:any) => void,
+	json : (json:any) => void
+}
+
+
+
 interface RoomContext extends JanusRoom {
 	room_id: string,
 	instance_id: string,
@@ -101,17 +109,13 @@ interface JanusOptions {
 	updateContext?: (context:any) => Promise<any>,
 	selectInstance?: (instances:JanusInstance[]) => JanusInstance,
 	generateInstances?: () => Promise<JanusInstanceOptions[]>,
-	onError: (error:any) => void,
-	keepAliveTimeout: number,
-	syncInterval: number,
-	logger: {
-		info : (message:string) => void,
-		error : (error:any) => void,
-		json : (json:any) => void
-	},
+	onError?: (error:any) => void,
+	keepAliveTimeout?: number,
+	syncInterval?: number,
+	logger?: Logger,
 	instancesAmount?: number,
-	webSocketOptions?: any,
-	publicIp?: string
+	publicIp?: string,
+	webSocketOptions?: any
 }
 
 
@@ -148,9 +152,13 @@ export class Janus {
 	wss:any
 	t:any
 	
-	constructor(options:JanusOptions) {
+	constructor(options?:JanusOptions) {
 		
-		this.options = options;
+		this.options = {};
+		
+		if (options) {
+ 			this.options = options;
+		}
 
 		if (this.options.logger) {
 			this.logger = this.options.logger;
@@ -168,11 +176,11 @@ export class Janus {
 
 		this.stats = {};
 
-		this.keepAliveTimeout = 30000;
+		this.keepAliveTimeout = this.options.keepAliveTimeout || 30000;
 
-		this.syncInterval = 10000;
+		this.syncInterval = this.options.syncInterval || 10000;
 
-		this.instancesAmount = options.instancesAmount || 2;
+		this.instancesAmount = this.options.instancesAmount || 2;
 
 		this.containersLaunched = false;
 
@@ -181,8 +189,6 @@ export class Janus {
 		this.dockerJanusImage = 'herbert1947/janus-gateway-videoroom';
 		
 		this.defaultWebSocketOptions = {
-			//host: '3.121.126.200',
-			//host: '127.0.0.1', 
 			port: 8080,
 			backlog: 10,
 			clientTracking: false,
