@@ -101,7 +101,44 @@ this option will be passed as nat 1 1 mapping to janus.
 
 > `any` | optional
 
-options for websocket server constructor.  
+options for websocket server constructor.
+
+```
+const keys = { 
+    key: fs.readFileSync("/keys/key.pem"),
+    cert: fs.readFileSync("/keys/cert.pem")
+};
+
+const serverOptions = { 
+    key: keys.key, 
+    cert: keys.cert 
+};
+
+const server = https.createServer(serverOptions, app).listen(443); 
+
+janus = new Janus({
+    webSocketOptions:{
+        server
+    }
+});
+```
+
+## Instance methods  
+
+### createRoom
+
+> `(message:{
+    load:{ 
+        description, 
+        bitrate,
+        bitrate_cap,
+        fir_freq,
+        videocodec,
+        vp9_profile
+    }
+}) => Promise<Response>`
+
+
 
 ## DEMO
 
