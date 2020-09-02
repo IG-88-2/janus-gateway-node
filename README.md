@@ -35,15 +35,35 @@ await janus.initialize();
 ```
 ## Options 
 
-### option 1
+### generateInstances
 
-> `(rooms:JanusRoom[]) => void` | _required_
+> `() => Promise<JanusInstanceOptions[]>` | optional
 
-called when connection established and response arrived for get available rooms request.  
+return necessary information for every available janus instance required
+to establish connection.  
+
+### selectInstance
+
+> `(instances:JanusInstance[]) => JanusInstance` | optional
+
+this function is called when room needs to be created, user can make a choice based on current 
+instance properties.  
+
+### updateContext
+
+> `(context:Context) => Promise<Context>` | optional
+
+update rooms data on change.
+
+### retrieveContext
+
+> `() => Promise<Context>` | optional
+
+retrieve rooms data on launch.
 
 ### onError
 
-> `(error:any) => void` | _required_
+> `(error:any) => void` | optional
 
 in case error occurred this. function will be invoked to notify user about error.  
 
@@ -51,7 +71,37 @@ in case error occurred this. function will be invoked to notify user about error
 
 > `any` | optional
 
-customize logging
+customize logging.
+
+### keepAliveTimeout
+
+> `number` | optional
+
+keepalive timeout for user.
+
+### syncInterval
+
+> `number` | optional
+
+synchronization interval for janus instances.
+
+### instancesAmount
+
+> `number` | optional
+
+amount of instances to spawn by default.
+
+### publicIp
+
+> `string` | optional
+
+this option will be passed as nat 1 1 mapping to janus.
+
+### webSocketOptions
+
+> `any` | optional
+
+options for websocket server constructor.  
 
 ## DEMO
 

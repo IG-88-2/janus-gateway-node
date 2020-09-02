@@ -14,6 +14,11 @@ interface JanusRoom {
     record: boolean;
     num_participants: number;
 }
+interface Logger {
+    info: (message: string) => void;
+    error: (error: any) => void;
+    json: (json: any) => void;
+}
 interface RoomContext extends JanusRoom {
     room_id: string;
     instance_id: string;
@@ -34,17 +39,13 @@ interface JanusOptions {
     updateContext?: (context: any) => Promise<any>;
     selectInstance?: (instances: JanusInstance[]) => JanusInstance;
     generateInstances?: () => Promise<JanusInstanceOptions[]>;
-    onError: (error: any) => void;
-    keepAliveTimeout: number;
-    syncInterval: number;
-    logger: {
-        info: (message: string) => void;
-        error: (error: any) => void;
-        json: (json: any) => void;
-    };
+    onError?: (error: any) => void;
+    keepAliveTimeout?: number;
+    syncInterval?: number;
+    logger?: Logger;
     instancesAmount?: number;
-    webSocketOptions?: any;
     publicIp?: string;
+    webSocketOptions?: any;
 }
 interface Response {
     type: string;
@@ -84,7 +85,7 @@ export declare class Janus {
     context: any;
     wss: any;
     t: any;
-    constructor(options: JanusOptions);
+    constructor(options?: JanusOptions);
     generateInstances: () => Promise<JanusInstanceOptions[]>;
     initialize: () => Promise<void>;
     terminate: () => Promise<void>;

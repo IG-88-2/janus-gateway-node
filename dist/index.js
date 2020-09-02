@@ -2288,7 +2288,10 @@ class Janus {
             catch (error) { }
             return user_id;
         };
-        this.options = options;
+        this.options = {};
+        if (options) {
+            this.options = options;
+        }
         if (this.options.logger) {
             this.logger = this.options.logger;
         }
@@ -2300,9 +2303,9 @@ class Janus {
         this.instances = {};
         this.connections = {};
         this.stats = {};
-        this.keepAliveTimeout = 30000;
-        this.syncInterval = 10000;
-        this.instancesAmount = options.instancesAmount || 2;
+        this.keepAliveTimeout = this.options.keepAliveTimeout || 30000;
+        this.syncInterval = this.options.syncInterval || 10000;
+        this.instancesAmount = this.options.instancesAmount || 2;
         this.containersLaunched = false;
         this.shouldDetach = true;
         this.dockerJanusImage = 'herbert1947/janus-gateway-videoroom';
