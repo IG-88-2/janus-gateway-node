@@ -40,7 +40,57 @@ await janus.initialize();
 > `() => Promise<JanusInstanceOptions[]>` | optional
 
 return necessary information for every available janus instance required
-to establish connection.  
+to establish connection. Example of launch instances script - https://github.com/IG-88-2/janus-gateway-videoroom-tests/blob/master/launchInstances.js
+
+```
+janus = new Janus({
+    generateInstances : async () : Promise<JanusInstanceOptions[]> => {
+        const instances = [];
+        const start_ws_port = 8188;
+        const start_admin_ws_port = 7188;
+
+        for(let i = 0; i < this.instancesAmount; i++) {
+            instances.push({
+                id : uuidv1(),
+                admin_key : uuidv1(),
+                server_name : `instance_${i}`,
+                log_prefix : `instance_${i}:`,
+                docker_ip :  `127.0.0.${1 + i}`,
+                ws_port : start_ws_port + i,
+                admin_ws_port : start_admin_ws_port + i,
+                stun_server : "stun.voip.eutelia.it",
+                nat_1_1_mapping : this.options.publicIp || `127.0.0.${1 + i}`,
+                stun_port : 3478,
+                debug_level : 5
+            });
+        }
+
+        await this.launchContainers(instances);
+        
+        return instances.map(({
+            admin_key,
+            server_name,
+            ws_port,
+            docker_ip,
+            admin_ws_port,
+            log_prefix,
+            stun_server, 
+            stun_port,
+            id,
+            debug_level
+        }) => {
+            return {
+                protocol: `ws`,
+                address: docker_ip,
+                port: ws_port,
+                adminPort: admin_ws_port,
+                adminKey: admin_key,
+                server_name
+            };
+        });
+    }
+});
+```
 
 ### selectInstance
 
@@ -48,6 +98,25 @@ to establish connection.
 
 this function is called when room needs to be created, user can make a choice based on current 
 instance properties.  
+
+```
+janus = new Janus({
+    selectInstance:(instances : JanusInstance[]) => {
+		
+		let instance = instances[this.count];
+						
+		if (!instance) {
+			this.count = 0;
+			instance = instances[this.count];
+		}
+
+		this.count += 1;
+
+		return instance;
+
+    }
+});
+```
 
 ### updateContext
 
@@ -127,18 +196,18 @@ janus = new Janus({
 
 ### createRoom
 
-> `(message:{
-    load:{ 
-        description, 
-        bitrate,
-        bitrate_cap,
-        fir_freq,
-        videocodec,
-        vp9_profile
+> `(message:{ type?:string, load:Data}) => Promise<Response>`
+
+```
+const result = await janus.createRoom({
+    load: {
+        description: `vp8 room`,
+        bitrate: 512000,
+        bitrate_cap: false,
+        videocodec: "vp8"
     }
-}) => Promise<Response>`
-
-
+});
+```
 
 ## DEMO
 
