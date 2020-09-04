@@ -702,7 +702,14 @@ export class Janus {
 		
 		this.logger.info(`timeout called for user ${user_id}`);
 
-		const { ws } = this.connections[user_id];
+		if (!this.connections[user_id]) {
+			this.logger.info(`user ${user_id} is not registered...`);
+			return;
+		}
+
+		const { ws, t } = this.connections[user_id];
+
+		clearTimeout(t);
 
 		ws.removeListener('message', this.onMessage);
 
@@ -740,17 +747,23 @@ export class Janus {
 
 			this.connections[user_id].ws.removeListener('message', this.onMessage);
 
-			//TODO review ???
-			//this.connections[user_id].ws.close();
 			clearTimeout(this.connections[user_id].t);
+			
+			this.connections[user_id] = undefined;
 
 			if (this.shouldDetach) {
 				await this.detachUserHandles(user_id);
 			}
-
+			
 			this.logger.info(`connection from ${user_id} cleared`);
 		}
 		
+		///WHAT ??? review
+		if (this.connections[user_id]) {
+			this.logger.info(`connection from ${user_id} already exist`);
+			return;
+		}
+
 		const t = setTimeout(() => {
 			
 			this.onTimeout(user_id, this.shouldDetach);
