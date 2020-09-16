@@ -1079,6 +1079,7 @@ export class Janus {
 			bitrate_cap,
 			fir_freq,
 			videocodec,
+			permanent,
 			vp9_profile
 		} = message.load;
 		
@@ -1100,6 +1101,7 @@ export class Janus {
 			pin,
 			bitrate,
 			bitrate_cap,
+			permanent,
 			fir_freq,
 			videocodec,
 			vp9_profile,
