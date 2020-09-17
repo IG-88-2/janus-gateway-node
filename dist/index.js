@@ -973,7 +973,7 @@ class JanusInstance {
             return this.adminTransaction(request);
         };
         this.createRoom = (data) => {
-            const { secret, pin, room, description, bitrate, bitrate_cap, fir_freq, videocodec, vp9_profile } = data;
+            const { secret, pin, room, description, permanent, bitrate, bitrate_cap, fir_freq, videocodec, vp9_profile } = data;
             const request = {
                 janus: "message",
                 handle_id: this.localHandleId,
@@ -981,7 +981,7 @@ class JanusInstance {
                     request: "create",
                     description,
                     room,
-                    permanent: false,
+                    permanent,
                     is_private: false,
                     admin_key: this.adminKey,
                     publishers: 6,
@@ -1961,7 +1961,7 @@ class Janus {
             };
         };
         this.createRoom = async (message) => {
-            const { description, bitrate, bitrate_cap, fir_freq, videocodec, vp9_profile } = message.load;
+            const { description, bitrate, bitrate_cap, fir_freq, videocodec, permanent, vp9_profile } = message.load;
             const instance = this.selectInstance();
             if (!instance) {
                 throw new Error(`No instance available`);
@@ -1975,6 +1975,7 @@ class Janus {
                 pin,
                 bitrate,
                 bitrate_cap,
+                permanent,
                 fir_freq,
                 videocodec,
                 vp9_profile,

@@ -76,6 +76,7 @@ export declare class JanusInstance {
         pin: string;
         bitrate: number;
         bitrate_cap: boolean;
+        permanent: boolean;
         fir_freq: number;
         videocodec: string;
         vp9_profile: string;

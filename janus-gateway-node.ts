@@ -1080,6 +1080,7 @@ export class Janus {
 			fir_freq,
 			videocodec,
 			permanent,
+			id,
 			vp9_profile
 		} = message.load;
 		
@@ -1089,7 +1090,7 @@ export class Janus {
 			throw new Error(`No instance available`);
 		}
 		
-		const room_id = this.getRoomId();
+		const room_id = id ? id : this.getRoomId();
 
 		const secret = this.getSecret();
 
