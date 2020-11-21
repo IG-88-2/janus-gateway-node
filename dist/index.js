@@ -1961,12 +1961,12 @@ class Janus {
             };
         };
         this.createRoom = async (message) => {
-            const { description, bitrate, bitrate_cap, fir_freq, videocodec, permanent, vp9_profile } = message.load;
+            const { description, bitrate, bitrate_cap, fir_freq, videocodec, permanent, id, vp9_profile } = message.load;
             const instance = this.selectInstance();
             if (!instance) {
                 throw new Error(`No instance available`);
             }
-            const room_id = this.getRoomId();
+            const room_id = id ? id : this.getRoomId();
             const secret = this.getSecret();
             const pin = this.getPin();
             const result = await instance.createRoom({
