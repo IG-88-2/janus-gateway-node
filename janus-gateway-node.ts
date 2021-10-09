@@ -133,10 +133,6 @@ export class Janus {
 
 	
 	public initialize = async () : Promise<void> => {
-
-		const state = await this.readState();
-
-		//TODO state type
 		
 		this.instances = {};
 
@@ -949,30 +945,6 @@ export class Janus {
 			
 			this.logger.error(error);
 			
-		}
-	
-	}
-
-
-
-	private readState = () => {
-
-		try {
-	
-			const statePath = path.resolve('state.json');
-	
-			const file = fs.readFileSync(statePath, 'utf-8');
-	
-			const state = JSON.parse(file);
-	
-			return state;
-	
-		} catch(error) {
-	
-			this.logger.error(error);
-			
-			return {};
-	
 		}
 	
 	}
