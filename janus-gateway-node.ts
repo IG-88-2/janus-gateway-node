@@ -1,61 +1,12 @@
 import { JanusInstance } from "./janus-gateway-instance";
-import { exec } from 'child_process';
+import { logger } from "./utils/logger";
 const path = require('path');
+const equal = require('fast-deep-equal');
 const fs = require('fs');
 const uuidv1 = require('uuid').v1;
 const WebSocket = require("ws");
 const url = require("url");
 const uniq = (list:string[]) : boolean => list.length===[...new Set(list)].length;
-const util = require('util');
-
-
-
-let enable = true;
-
-
-
-const logger = {
-	enable : () => {
-
-        enable = true;
-    
-    },
-    disable : () => {
-    
-        enable = false;
-    
-    },
-	info : (message) => {
-
-		if (enable) {
-			console.log("\x1b[32m", `[test info] ${message}`);
-		}
-
-	},
-	error : (message) => {
-		
-		if (enable) {
-			if (typeof message==="string") {
-				console.log("\x1b[31m", `[test error] ${message}`);
-			} else {
-				try {
-					const string = util.inspect(message, {showHidden: false, depth: null});
-					console.log("\x1b[31m", `[test error] ${string}`);
-				} catch(error) {}
-			}
-		}
-
-	},
-	json : (object) => {
-
-		if (enable) {
-			const string = JSON.stringify(object, null, 2);
-			console.log("\x1b[37m", `[test json] ${string}`);
-		}
-
-	}
-};
-
 
 
 interface JanusRoom {
@@ -83,7 +34,7 @@ interface Logger {
 
 
 
-interface RoomContext extends JanusRoom {
+interface RoomState extends JanusRoom {
 	room_id: string,
 	instance_id: string,
 	secret: string,
@@ -105,16 +56,12 @@ interface JanusInstanceOptions {
 
 
 interface JanusOptions {
-	retrieveContext?: () => Promise<any>,
-	updateContext?: (context:any) => Promise<any>,
+	instances: JanusInstanceOptions[],
 	selectInstance?: (instances:JanusInstance[]) => JanusInstance,
-	generateInstances?: () => Promise<JanusInstanceOptions[]>,
 	onError?: (error:any) => void,
 	keepAliveTimeout?: number,
 	syncInterval?: number,
 	logger?: Logger,
-	instancesAmount?: number,
-	publicIp?: string,
 	webSocketOptions?: any
 }
 
@@ -130,41 +77,42 @@ interface Response {
 
 export class Janus {
 	options:JanusOptions
-	rooms:{ [id:string] : RoomContext }
-	handles: { [id:number] : any }
+	rooms:{ [id:string] : RoomState }
+	handles:{ [id:number] : any }
 	instances:{ [id:string] : JanusInstance }
 	connections:{ [id:string] : any }
-	stats:{ [id:string] : any }
 	sync:NodeJS.Timer
 	listening:boolean
-	contextPath:string
+	statePath:string
 	keepAliveTimeout:number
 	syncInterval:number
 	count:number
-	instancesAmount:number
-	dockerJanusImage:string
-	containersLaunched:boolean
 	notifyConnected:() => void
 	defaultWebSocketOptions:any
 	shouldDetach:boolean
 	logger:any
-	context:any
 	wss:any
 	t:any
 	
-	constructor(options?:JanusOptions) {
+	constructor(options:JanusOptions) {
 		
-		this.options = {};
-		
-		if (options) {
- 			this.options = options;
-		}
+		this.options = options;
 
+		this.statePath = path.resolve('state.json');
+		
 		if (this.options.logger) {
 			this.logger = this.options.logger;
 		} else {
 			this.logger = logger;
 		}
+
+		this.defaultWebSocketOptions = {
+			port: 8080,
+			backlog: 10,
+			clientTracking: false,
+			perMessageDeflate: false,
+			maxPayload: 10000
+		};
 
 		this.rooms = {};
 		
@@ -174,102 +122,26 @@ export class Janus {
 
 		this.connections = {};
 
-		this.stats = {};
-
 		this.keepAliveTimeout = this.options.keepAliveTimeout || 30000;
 
 		this.syncInterval = this.options.syncInterval || 10000;
 
-		this.instancesAmount = this.options.instancesAmount || 2;
-
-		this.containersLaunched = false;
-
 		this.shouldDetach = true;
-
-		this.dockerJanusImage = 'herbert1947/janus-gateway-videoroom';
-		
-		this.defaultWebSocketOptions = {
-			port: 8080,
-			backlog: 10,
-			clientTracking: false,
-			perMessageDeflate: false,
-			maxPayload: 10000
-		};
-
-		this.context = {};
 		
 	}
 
 
-
-	generateInstances = async () : Promise<JanusInstanceOptions[]> => {
-
-		if (this.options.generateInstances) {
-			return await this.options.generateInstances();
-		}
-
-		const instances = [];
-	
-		const start_ws_port = 8188;
-	
-		const start_admin_ws_port = 7188;
-	
-		for(let i = 0; i < this.instancesAmount; i++) {
-			instances.push({
-				id : uuidv1(),
-				admin_key : uuidv1(),
-				server_name : `instance_${i}`,
-				log_prefix : `instance_${i}:`,
-				docker_ip :  `127.0.0.${1 + i}`,
-				ws_port : start_ws_port + i,
-				admin_ws_port : start_admin_ws_port + i,
-				stun_server : "stun.voip.eutelia.it",
-				nat_1_1_mapping : this.options.publicIp || `127.0.0.${1 + i}`,
-				stun_port : 3478,
-				debug_level : 5
-			});
-		}
-	
-		await this.launchContainers(instances);
-		
-		return instances.map(({
-			admin_key,
-			server_name,
-			ws_port,
-			docker_ip,
-			admin_ws_port,
-			log_prefix,
-			stun_server, 
-			stun_port,
-			id,
-			debug_level
-		}) => {
-			return {
-				protocol: `ws`,
-				address: docker_ip,
-				port: ws_port,
-				adminPort: admin_ws_port,
-				adminKey: admin_key,
-				server_name
-			};
-		});
-	
-	}
-
-	
 	
 	public initialize = async () : Promise<void> => {
 
-		this.context = await this.retrieveContext();
+		const state = await this.readState();
+
+		//TODO state type
 		
 		this.instances = {};
-		
-		const list = await this.generateInstances();
 
-		this.logger.info(`instances generated`);
-
-		for(let i = 0; i < list.length; i++) {
-			const { protocol, address, port, adminPort, adminKey, server_name } = list[i];
+		for(let i = 0; i < this.options.instances.length; i++) {
+			const { protocol, address, port, adminPort, adminKey, server_name } = this.options.instances[i];
 			
 			this.logger.info(`ready to connect instance ${i}`);
 
@@ -354,8 +226,6 @@ export class Janus {
 
 		this.logger.info(`terminate...`);
 
-		this.context = await this.updateContext(this.rooms);
-
 		const instances : JanusInstance[] = Object.values(this.instances);
 
 		if (this.sync) {
@@ -382,120 +252,8 @@ export class Janus {
 			
 		});
 
-		await this.terminateContainers();
-
 	}
 
-
-	
-	private launchContainers = (instances) => {
-		
-		this.logger.info(`launching ${instances.length} containers`);
-	
-		const step = 101;
-
-		const maxBuffer = 1024 * 1024 * 1024;
-	
-		let udpStart = 20000;
-	
-		let udpEnd = udpStart + step - 1;
-	
-		for(let i = 0; i < instances.length; i++) {
-			const {
-				id,
-				admin_key,
-				server_name,
-				ws_port,
-				log_prefix,
-				admin_ws_port,
-				stun_server, 
-				stun_port,
-				docker_ip,
-				debug_level,
-				nat_1_1_mapping
-			} = instances[i];
-			
-			const args = [
-				[ "ID", id ],
-				[ "ADMIN_KEY", admin_key ],
-				[ "SERVER_NAME", server_name ],
-				[ "WS_PORT", ws_port ],
-				[ "ADMIN_WS_PORT", admin_ws_port ],
-				[ "LOG_PREFIX", log_prefix ],
-				[ "DOCKER_IP", docker_ip ],
-				[ "DEBUG_LEVEL", debug_level ],
-				[ "NAT_1_1_MAPPING", nat_1_1_mapping],
-				[ "RTP_PORT_RANGE", `${udpStart}-${udpEnd}` ],
-				[ "STUN_SERVER", stun_server ],
-				[ "STUN_PORT", stun_port ]
-			];
-			
-			let command = `docker run -i --cap-add=NET_ADMIN --name ${server_name} `;
-			//--publish-all=true
-			//-P
-			//--network=host
-			//-p 127.0.0.1:20000-40000:20000-40000
-			//command += `-p ${docker_ip}:${udpStart}-${udpEnd}:${udpStart}-${udpEnd}/udp `;
-			command += `-p ${udpStart}-${udpEnd}:${udpStart}-${udpEnd}/udp `;
-			command += `-p ${ws_port}:${ws_port} `;
-			command += `-p ${admin_ws_port}:${admin_ws_port} `;
-			command += `${args.map(([name,value]) => `-e ${name}="${value}"`).join(' ')} `;
-			command += `${this.dockerJanusImage}`;
-			
-			this.logger.info(`launching container ${i}...${command}, nat 1 1 mapping ${nat_1_1_mapping}`);
-	
-			exec(
-				command,
-				{
-					maxBuffer
-				},
-				(error, stdout, stderr) => {
-					
-					this.logger.info(`container ${server_name} terminated`);
-	
-					if (error) {
-						if (error.message) {
-							this.logger.error(error.message);
-						} else {
-							this.logger.error(error);
-						}
-					}
-	
-				}
-			);
-	
-			udpStart += step;
-			udpEnd += step;
-		}
-
-		this.containersLaunched = true;
-	
-	}
-
-
-	
-	private terminateContainers = async () => {
-		
-		if (this.containersLaunched) {
-			const command = process.platform==='linux' ? `docker rm -f $(docker ps -a -q)` : `FOR /F %A IN ('docker ps -q') DO docker rm -f %~A`;
-			
-			try {
-		
-				const result = await exec(
-					command
-				);
-		
-			} catch(error) {
-
-				this.logger.error(error);
-
-			}
-
-			this.containersLaunched = false;
-		}
-		
-	}
-	
 
 
 	private getDuplicateIds = async () => {
@@ -539,7 +297,7 @@ export class Janus {
 	}
 
 
-
+	//TODO pass keys info in a different way
 	private synchronize = async (instance_id?:string) : Promise<void> => {
 		
 		let duplicates = [];
@@ -550,10 +308,14 @@ export class Janus {
 			this.onError(error);
 		}
 
+		/*
 		if (duplicates.length > 0) {
 			const error = new Error(`rooms ids duplicated across instances - ${JSON.stringify(duplicates)}`);
 			this.onError(error);
 		}
+		*/
+
+		const rooms = {};
 
 		const instances = Object.values(this.instances);
 		
@@ -568,7 +330,8 @@ export class Janus {
 			const rooms : JanusRoom[] = result.plugindata.data.list;
 			const handles = await instance.listHandles();
 			
-			this.stats[instance.id] = instance.stats;
+			this.logger.info(instance.stats);
+			
 			
 			if (handles.handles) {
 				instance.activeHandles = handles.handles.length;
@@ -584,12 +347,14 @@ export class Janus {
 			for(let j = 0; j < rooms.length; j++) {
 				const { room } = rooms[j];
 				const d = duplicates.findIndex((e) => e===room);
+
 				if (d!==-1) {
 					continue;
 				}
+
 				const participants = await instance.listParticipants(room);
 				const instance_id = instance.id;
-				const context : RoomContext = {
+				const state : RoomState = {
 					room_id: room,
 					instance_id,
 					pin: undefined,
@@ -598,22 +363,25 @@ export class Janus {
 					...rooms[j]
 				};
 				
-				const target = this.context[room];
+				const target = this.rooms[room];
 				
 				if (target) {
 					if (target.pin) {
-						context.pin = target.pin;
+						state.pin = target.pin;
 					}
 					if (target.secret) {
-						context.secret = target.secret;
+						state.secret = target.secret;
 					}
 				}
 
-				this.rooms[room] = context;
+				rooms[room] = state;
 			}
 		}
 		
-		this.context = await this.updateContext(this.rooms);
+		if (!equal(rooms, this.rooms)) {
+			this.rooms = rooms;
+			await this.writeState(rooms);
+		}
 		
 	}
 
@@ -661,7 +429,7 @@ export class Janus {
 		
 		return new Promise((resolve) => {
 
-			this.notifyConnected = () => resolve();
+			this.notifyConnected = () => resolve(0);
 
 		});
 
@@ -897,7 +665,7 @@ export class Janus {
 		
 		if (!json.sender) {
 			if (json.janus!=="ack") {
-				this.logger.info(`[?] ${instance_id} json.sender undefined - ${JSON.stringify(json)}`);
+				
 			}
 			return;
 		}
@@ -1113,7 +881,7 @@ export class Janus {
 
 		const { room } = data;
 
-		const context : RoomContext = {
+		const state : RoomState = {
 			room_id: room,
 			instance_id: instance.id,
 			pin,
@@ -1122,14 +890,14 @@ export class Janus {
 			...data
 		};
 		
-		this.rooms[room] = context;
+		this.rooms[room] = state;
 		
-		this.context = await this.updateContext(this.rooms);
+		await this.writeState(this.rooms);
 
 		const response = {
 			type:'create_room',
 			load: {
-				context,
+				context: state, //TODO modify
 				result
 			}
 		};
@@ -1144,14 +912,14 @@ export class Janus {
 		
 		const { room_id } = message.load;
 
-		const context = this.rooms[room_id];
+		const state = this.rooms[room_id];
 
-		const instance = this.instances[context.instance_id];
+		const instance = this.instances[state.instance_id];
 
 		const result = await instance.destroyRoom({
 			handle_id: instance.localHandleId,
 			room: room_id,
-			secret: context.secret
+			secret: state.secret
 		});
 
 		delete this.rooms[room_id];
@@ -1167,41 +935,37 @@ export class Janus {
 	
 
 
-	private retrieveContext = async () => {
+	private writeState = async (rooms) => {
 
-		if (this.options.retrieveContext) {
-			return await this.options.retrieveContext();
-		}
-
-		return await this._retrieveContext();
-		
-	}
-
+		try {
+			
+			const file = JSON.stringify(rooms);
 	
-
-	private updateContext = async (rooms) => {
-
-		if (this.options.updateContext) {
-			return await this.options.updateContext(this.rooms);
+			const fsp = fs.promises;
+	
+			await fsp.writeFile(this.statePath, file, 'utf8');
+			
+		} catch(error) {
+			
+			this.logger.error(error);
+			
 		}
 	
-		return await this._updateContext(rooms);
-
 	}
 
 
 
-	private _retrieveContext = () => {
+	private readState = () => {
 
 		try {
 	
-			const contextPath = path.resolve('context.json');
+			const statePath = path.resolve('state.json');
 	
-			const file = fs.readFileSync(contextPath, 'utf-8');
+			const file = fs.readFileSync(statePath, 'utf-8');
 	
-			const context = JSON.parse(file);
+			const state = JSON.parse(file);
 	
-			return context;
+			return state;
 	
 		} catch(error) {
 	
@@ -1214,30 +978,6 @@ export class Janus {
 	}
 
 	
-
-	private _updateContext = async (rooms) => {
-
-		try {
-			
-			const contextPath = path.resolve('context.json');
-	
-			const file = JSON.stringify(rooms);
-	
-			const fsp = fs.promises;
-	
-			await fsp.writeFile(contextPath, file, 'utf8');
-			
-		} catch(error) {
-			
-			this.logger.error(error);
-			
-		}
-	
-		return rooms;
-	
-	}
-
-
 
 	public getIceHandle = async (user_id:string, room_id:string) : Promise<Response> => {
 	
@@ -1598,23 +1338,6 @@ export class Janus {
 
 
 
-	private _selectInstance = (instances : JanusInstance[]) => {
-		
-		let instance = instances[this.count];
-						
-		if (!instance) {
-			this.count = 0;
-			instance = instances[this.count];
-		}
-
-		this.count += 1;
-
-		return instance;
-
-	}
-
-
-
 	private selectInstance = () => {
 		
 		let instances : JanusInstance[] = Object.values(this.instances);
@@ -1629,7 +1352,16 @@ export class Janus {
 			return this.options.selectInstance(instances);
 		}
 
-		return this._selectInstance(instances);
+		let instance = instances[this.count];
+						
+		if (!instance) {
+			this.count = 0;
+			instance = instances[this.count];
+		}
+
+		this.count += 1;
+
+		return instance;
 		
 	}
 
