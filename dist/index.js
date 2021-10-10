@@ -1545,8 +1545,7 @@ class Janus {
                     acc[room] = state;
                 }
             }
-            console.log(`acc is`, acc);
-            if (!equal(acc, this.rooms)) {
+            if (!equal(acc, this.rooms) && Object.keys(acc).length != 0) {
                 this.rooms = acc;
                 await this.writeState(this.rooms);
             }

@@ -936,9 +936,7 @@ export class Janus {
 		try {
 			
 			const file = JSON.stringify(rooms);
-
-			this.logger.error(`writing state ${file}`);
-	
+			
 			const fsp = fs.promises;
 	
 			await fsp.writeFile(this.statePath, file, 'utf8');
