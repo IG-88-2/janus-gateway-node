@@ -190,7 +190,7 @@ export class Janus {
 		}
 
 		const instances = Object.values(this.instances);
-
+		
 		const ids = instances.map(({ id }) => id);
 
 		if (!uniq(ids)) {
@@ -311,7 +311,7 @@ export class Janus {
 		}
 		*/
 
-		const rooms = {};
+		const acc = {};
 
 		const instances = Object.values(this.instances);
 		
@@ -370,13 +370,13 @@ export class Janus {
 					}
 				}
 
-				rooms[room] = state;
+				acc[room] = state;
 			}
 		}
 		
-		if (!equal(rooms, this.rooms)) {
-			this.rooms = rooms;
-			await this.writeState(rooms);
+		if (!equal(acc, this.rooms) && Object.keys(acc).length != 0) {
+			this.rooms = acc;
+			await this.writeState(this.rooms);
 		}
 		
 	}
@@ -936,6 +936,8 @@ export class Janus {
 		try {
 			
 			const file = JSON.stringify(rooms);
+
+			this.logger.error(`writing state ${file}`);
 	
 			const fsp = fs.promises;
 	

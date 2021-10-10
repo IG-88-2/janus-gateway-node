@@ -1393,7 +1393,6 @@ const uniq = (list) => list.length === [...new Set(list)].length;
 class Janus {
     constructor(options) {
         this.initialize = async () => {
-            await this.readState();
             this.instances = {};
             for (let i = 0; i < this.options.instances.length; i++) {
                 const { protocol, address, port, adminPort, adminKey, server_name } = this.options.instances[i];
@@ -1504,7 +1503,7 @@ class Janus {
             catch (error) {
                 this.onError(error);
             }
-            const rooms = {};
+            const acc = {};
             const instances = Object.values(this.instances);
             for (let i = 0; i < instances.length; i++) {
                 const instance = instances[i];
@@ -1543,12 +1542,13 @@ class Janus {
                             state.secret = target.secret;
                         }
                     }
-                    rooms[room] = state;
+                    acc[room] = state;
                 }
             }
-            if (!equal(rooms, this.rooms)) {
-                this.rooms = rooms;
-                await this.writeState(rooms);
+            console.log(`acc is`, acc);
+            if (!equal(acc, this.rooms)) {
+                this.rooms = acc;
+                await this.writeState(this.rooms);
             }
         };
         this.transport = () => {
@@ -1925,23 +1925,12 @@ class Janus {
         this.writeState = async (rooms) => {
             try {
                 const file = JSON.stringify(rooms);
+                this.logger.error(`writing state ${file}`);
                 const fsp = fs.promises;
                 await fsp.writeFile(this.statePath, file, 'utf8');
             }
             catch (error) {
                 this.logger.error(error);
-            }
-        };
-        this.readState = () => {
-            try {
-                const statePath = path.resolve('state.json');
-                const file = fs.readFileSync(statePath, 'utf-8');
-                const state = JSON.parse(file);
-                return state;
-            }
-            catch (error) {
-                this.logger.error(error);
-                return {};
             }
         };
         this.getIceHandle = async (user_id, room_id) => {
